@@ -14,54 +14,55 @@
     flex-direction: row;
     justify-content: flex-start;
     align-items: flex-end;
-    gap: calc(10 / 1920 * 100vw);
-    padding-left: calc(10 / 1920 * 100vw);
+    gap: calc(20 / 1920 * 100vw);
+    padding-left: calc(20 / 1920 * 100vw);
     z-index: 10;
   }
   .player-card {
-    width: calc(100 / 1920 * 100vw);
+    width: calc(200 / 1920 * 100vw);
     background: rgba(0,0,0,0.85);
-    border-radius: 0 calc(20 / 1920 * 100vw) 0 0;
-    padding: calc(6 / 1920 * 100vw) calc(8 / 1920 * 100vw);
+    border-radius: 0 calc(40 / 1920 * 100vw) 0 0;
+    padding: calc(12 / 1920 * 100vw) calc(16 / 1920 * 100vw);
     color: #fff;
-    font-size: calc(8 / 1920 * 100vw);
+    font-size: calc(16 / 1920 * 100vw);
     box-sizing: border-box;
   }
   .player-card .pc-name {
     color: #f0b429;
-    font-size: calc(9.5 / 1920 * 100vw);
+    font-size: calc(19 / 1920 * 100vw);
     font-weight: 700;
-    margin-bottom: calc(2 / 1920 * 100vw);
+    margin-bottom: calc(4 / 1920 * 100vw);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
   .player-card .pc-game-state {
-    font-size: calc(6.5 / 1920 * 100vw);
+    font-size: calc(13 / 1920 * 100vw);
     color: #ccc;
-    margin-bottom: calc(4 / 1920 * 100vw);
+    margin-bottom: calc(8 / 1920 * 100vw);
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
+    justify-content: space-between;
   }
   .player-card .pc-situation {
-    font-size: calc(6.5 / 1920 * 100vw);
+    font-size: calc(13 / 1920 * 100vw);
     color: #aaa;
-    margin-bottom: calc(5 / 1920 * 100vw);
+    margin-bottom: calc(10 / 1920 * 100vw);
   }
   .player-card .pc-stats {
-    font-size: calc(7.5 / 1920 * 100vw);
+    font-size: calc(15 / 1920 * 100vw);
     font-weight: 600;
     color: #fff;
     border-top: 1px solid #333;
-    padding-top: calc(4 / 1920 * 100vw);
+    padding-top: calc(8 / 1920 * 100vw);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
   .player-card .pc-ticker {
-    margin-top: calc(4 / 1920 * 100vw);
-    min-height: calc(10 / 1920 * 100vw);
-    font-size: calc(7 / 1920 * 100vw);
+    margin-top: calc(8 / 1920 * 100vw);
+    min-height: calc(20 / 1920 * 100vw);
+    font-size: calc(14 / 1920 * 100vw);
     font-weight: 700;
     color: #4ade80;
     opacity: 0;
