@@ -9,54 +9,66 @@
   cast-media-player { width: 100%; height: 100%; }
 
   .player-cards {
-    position: absolute; bottom: 0; left: 0;
+    position: absolute; bottom: 0; left: 0; right: 0;
     display: flex;
-    flex-direction: column-reverse;
-    gap: 10px;
+    flex-direction: row;
+    justify-content: flex-start;
+    align-items: flex-end;
+    gap: calc(10 / 1920 * 100vw);
+    padding-left: calc(10 / 1920 * 100vw);
     z-index: 10;
   }
   .player-card {
-    width: 380px;
+    width: calc(100 / 1920 * 100vw);
     background: rgba(0,0,0,0.85);
-    border-radius: 0 20px 0 0;
-    padding: 18px 22px;
+    border-radius: 0 calc(20 / 1920 * 100vw) 0 0;
+    padding: calc(6 / 1920 * 100vw) calc(8 / 1920 * 100vw);
     color: #fff;
-    font-size: 22px;
+    font-size: calc(8 / 1920 * 100vw);
     box-sizing: border-box;
   }
   .player-card .pc-name {
     color: #f0b429;
-    font-size: 26px;
+    font-size: calc(9.5 / 1920 * 100vw);
     font-weight: 700;
-    margin-bottom: 6px;
+    margin-bottom: calc(2 / 1920 * 100vw);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .player-card .pc-game-state {
-    font-size: 19px;
+    font-size: calc(6.5 / 1920 * 100vw);
     color: #ccc;
-    margin-bottom: 10px;
+    margin-bottom: calc(4 / 1920 * 100vw);
     display: flex;
-    justify-content: space-between;
+    flex-direction: column;
   }
   .player-card .pc-situation {
-    font-size: 19px;
+    font-size: calc(6.5 / 1920 * 100vw);
     color: #aaa;
-    margin-bottom: 14px;
+    margin-bottom: calc(5 / 1920 * 100vw);
   }
   .player-card .pc-stats {
-    font-size: 23px;
+    font-size: calc(7.5 / 1920 * 100vw);
     font-weight: 600;
     color: #fff;
     border-top: 1px solid #333;
-    padding-top: 10px;
+    padding-top: calc(4 / 1920 * 100vw);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .player-card .pc-ticker {
-    margin-top: 10px;
-    min-height: 28px;
-    font-size: 21px;
+    margin-top: calc(4 / 1920 * 100vw);
+    min-height: calc(10 / 1920 * 100vw);
+    font-size: calc(7 / 1920 * 100vw);
     font-weight: 700;
     color: #4ade80;
     opacity: 0;
     transition: opacity 0.25s ease;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .player-card .pc-ticker.visible {
     opacity: 1;
