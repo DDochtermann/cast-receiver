@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8" />
+<title>stream-overlay receiver</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #000; height: 100%; overflow: hidden; font-family: system-ui, sans-serif; }
+  .stage { position: relative; width: 100vw; height: 100vh; }
+  cast-media-player { width: 100%; height: 100%; }
+
+  .player-card {
+    position: absolute; bottom: 0; left: 0;
+    width: 380px;
+    background: rgba(0,0,0,0.85);
+    border-radius: 0 20px 0 0;
+    padding: 18px 22px;
+    color: #fff;
+    font-size: 22px;
+    box-sizing: border-box;
+    z-index: 10;
+  }
+  .player-card .pc-name {
+    color: #f0b429;
+    font-size: 26px;
+    font-weight: 700;
+    margin-bottom: 6px;
+  }
+  .player-card .pc-game-state {
+    font-size: 19px;
+    color: #ccc;
+    margin-bottom: 10px;
+    display: flex;
+    justify-content: space-between;
+  }
+  .player-card .pc-situation {
+    font-size: 19px;
+    color: #aaa;
+    margin-bottom: 14px;
+  }
+  .player-card .pc-stats {
+    font-size: 23px;
+    font-weight: 600;
+    color: #fff;
+    border-top: 1px solid #333;
+    padding-top: 10px;
+  }
+  .player-card .pc-ticker {
+    margin-top: 10px;
+    min-height: 28px;
+    font-size: 21px;
+    font-weight: 700;
+    color: #4ade80;
+    opacity: 0;
+    transition: opacity 0.25s ease;
+  }
+  .player-card .pc-ticker.visible {
+    opacity: 1;
+  }
+</style>
+</head>
+<body>
+  <div class="stage">
+    <cast-media-player></cast-media-player>
+
+    <div class="player-card" id="player-card">
+      <div class="pc-name" id="pc-name">--</div>
+      <div class="pc-game-state">
+        <span id="pc-clock">--</span>
+        <span id="pc-score">--</span>
+        <span id="pc-poss">--</span>
+      </div>
+      <div class="pc-situation" id="pc-situation">--</div>
+      <div class="pc-stats" id="pc-stats">--</div>
+      <div class="pc-ticker" id="pc-ticker"></div>
+    </div>
+  </div>
+
+  <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
+  <script>
+    const context = cast.framework.CastReceiverContext.getInstance();
+    const playerManager = context.getPlayerManager();
+
+    // ---- Live player-stat card (Sleeper-sourced, no backend/proxy needed) ----
+    // Ported directly from public/index.html's identical logic (2026-09-20).
+    // Sleeper's endpoints are public/unauthenticated, so the receiver -- an
+    // embedded browser on the Chromecast itself -- can fetch them directly,
+    // same as the sender does. No proxy involved since this isn't user-pasted
+    // third-party content.
+    // Test-config DEFAULTS. These are `let` (not const) because the sender can replace them at
+    // runtime with a CONFIG message (R1, 2026-09-20), so one hosted receiver serves any game/
+    // player instead of needing an edit + redeploy per game. A receiver that never gets a CONFIG
+    // behaves exactly as before (these defaults), so an older sender still works.
+    // Test config: Jonathan Taylor, IND @ KC, Week 2 2026, game_id 202610216.
+    // Field mapping + design rationale: see projects/stream-overlay.md "SCOPE LOCKED" block.
+    let PC_GAME_ID = '202610216';
+    const PC_SEASON = 2026;
+    const PC_SEASON_TYPE = 'regular';
+    let PC_PLAYER_ID = '6813';
+    let PC_PLAYER_NAME = 'Jonathan Taylor';
+    let PC_AWAY_TEAM = 'IND';
+    let PC_HOME_TEAM = 'KC';
+    const PC_POLL_MS = 3000;
+    const PC_TICKER_DISPLAY_MS = 10000;
+
+    // Bumped on every accepted CONFIG. An in-flight poll captures the value at its start and
+    // discards its result if this changed while it was awaiting the network -- otherwise a poll
+    // begun under the OLD player could paint stale data over the NEW player's card.
+    let pcConfigEpoch = 0;
+    let pcHasConfig = false; // true once a valid CONFIG has been applied (reported in STATE_SYNC)
+
+    // Custom message channel shared with the sender (index.html CAST_NAMESPACE).
+    const CAST_NAMESPACE = 'urn:x-cast:com.streamoverlay.status';
+
+    // Compact Sleeper-style stat-line builder. Order mirrors the matchup-page
+    // row anatomy documented in live-stats Finding 1 (RB form: CAR, YD, REC, YD, TD).
+    function formatStatLine(stats) {
+      if (!stats) return '--';
+      const parts = [];
+      if (stats.rush_att) parts.push(`${stats.rush_att} CAR`);
+      if (stats.rush_yd) parts.push(`${stats.rush_yd} YD`);
+      if (stats.rec_tgt || stats.rec) parts.push(`${stats.rec || 0}/${stats.rec_tgt || 0} REC`);
+      if (stats.rec_yd) parts.push(`${stats.rec_yd} YD`);
+      const tds = (stats.rush_td || 0) + (stats.rec_td || 0);
+      if (tds) parts.push(`${tds} TD`);
+      return parts.length ? parts.join(', ') : '0 CAR';
+    }
+
+    // Compact delta line for the 10s ticker -- same key set, but only nonzero
+    // per-play deltas (a play usually touches 1-3 keys, e.g. a run: rush_att+rush_yd).
+    function formatDeltaLine(deltaStats) {
+      const parts = [];
+      if (deltaStats.rush_att) parts.push(`+${deltaStats.rush_att} CAR`);
+      if (deltaStats.rush_yd) parts.push(`${deltaStats.rush_yd >= 0 ? '+' : ''}${deltaStats.rush_yd} YD`);
+      if (deltaStats.rec) parts.push(`+${deltaStats.rec} REC`);
+      if (deltaStats.rec_yd) parts.push(`${deltaStats.rec_yd >= 0 ? '+' : ''}${deltaStats.rec_yd} YD`);
+      if (deltaStats.rush_td) parts.push(`+${deltaStats.rush_td} TD`);
+      if (deltaStats.rec_td) parts.push(`+${deltaStats.rec_td} TD`);
+      return parts.length ? parts.join(', ') : null;
+    }
+
+    let pcLastTickerSequence = null; // last play sequence we've already shown a ticker for
+    let pcTickerHideTimer = null;
+    let pcBaselineSeeded = false; // true after the first poll -- prevents firing a ticker
+                                   // for a play that already happened before page load
+
+    function showTicker(text) {
+      const el = document.getElementById('pc-ticker');
+      el.textContent = text;
+      el.classList.add('visible');
+      if (pcTickerHideTimer) clearTimeout(pcTickerHideTimer);
+      pcTickerHideTimer = setTimeout(() => {
+        el.classList.remove('visible');
+      }, PC_TICKER_DISPLAY_MS);
+    }
+
+    function ordinal(n) {
+      const s = ['th', 'st', 'nd', 'rd'];
+      const v = n % 100;
+      return n + (s[(v - 20) % 10] || s[v] || s[0]);
+    }
+
+    async function pollPlayerCard() {
+      const myEpoch = pcConfigEpoch; // see pcConfigEpoch: discard this poll if the config changes mid-flight
+      try {
+        const [playsRes, statsRes] = await Promise.all([
+          fetch(
+            `https://api.sleeper.app/plays/nfl/${PC_SEASON_TYPE}/${PC_SEASON}/game/${PC_GAME_ID}?limit=25&provider=genius`,
+            { cache: 'no-store' }
+          ),
+          fetch(
+            `https://api.sleeper.app/stats/nfl/game/${PC_GAME_ID}?season_type=${PC_SEASON_TYPE}&season=${PC_SEASON}`,
+            { cache: 'no-store' }
+          )
+        ]);
+        const playsData = await playsRes.json();
+        if (myEpoch !== pcConfigEpoch) return;
+        const plays = playsData.plays || [];
+        if (!plays.length) return;
+
+        // Newest play overall -- drives game-state fields (clock/score/down-distance/etc).
+        // Admin markers (period_end/timeout/game_over/kickoff) carry no play_state and
+        // often blank situational fields -- per live-stats Finding 15, walk forward to
+        // the newest play that actually HAS down/distance rather than blanking the display.
+        // EXCEPTION (2026-09-20): two terminal states override that hold-last-snap rule,
+        // because the stale snap there is wrong, not just old: Q2 period_end = HALFTIME,
+        // game_over = FINAL. Q1/Q3 period_end intentionally still hold the last snap
+        // (down & distance is still accurate across those transitions -- user decision).
+        const newestMeta = plays[0].metadata || {};
+        const isHalftime = newestMeta.play_type === 'period_end' && Number(newestMeta.quarter_name) === 2;
+        const isFinal = newestMeta.play_type === 'game_over';
+        const specialState = isHalftime ? 'HALFTIME' : (isFinal ? 'FINAL' : null);
+
+        let statePlay = plays.find(p => p.metadata && p.metadata.down) || plays[0];
+        const m = statePlay.metadata || {};
+
+        document.getElementById('pc-name').textContent = PC_PLAYER_NAME;
+
+        const clockStr = specialState
+          ? specialState
+          : ((m.quarter_name != null && m.time_remaining_minutes != null)
+              ? `Q${m.quarter_name} ${m.time_remaining_minutes}:${String(m.time_remaining_seconds).padStart(2, '0')}`
+              : '--');
+        document.getElementById('pc-clock').textContent = clockStr;
+
+        const awayPts = plays[0].metadata ? plays[0].metadata.away_points : undefined;
+        const homePts = plays[0].metadata ? plays[0].metadata.home_points : undefined;
+        document.getElementById('pc-score').textContent =
+          (awayPts != null && homePts != null) ? `${PC_AWAY_TEAM} ${awayPts} - ${PC_HOME_TEAM} ${homePts}` : '--';
+
+        // Possession + situation rows are HIDDEN (not blanked) in the special states,
+        // and restored as soon as play resumes.
+        const possEl = document.getElementById('pc-poss');
+        const sitEl = document.getElementById('pc-situation');
+        possEl.style.display = specialState ? 'none' : '';
+        sitEl.style.display = specialState ? 'none' : '';
+
+        possEl.textContent = m.possession ? `${m.possession} ball` : '--';
+
+        const situationStr = (m.down && m.distance != null && m.yard_line != null)
+          ? `${ordinal(m.down)} & ${m.distance} @ ${m.yard_line_territory || ''} ${m.yard_line}`.trim()
+          : '--';
+        sitEl.textContent = situationStr;
+
+        // Cumulative stats: PRIMARY SOURCE = sportradar /stats/nfl/game/<id> row --
+        // a true whole-game cumulative total, unaffected by genius's limit=25
+        // play-window bug (confirmed 2026-09-20, see project Findings).
+        let statsData = [];
+        try {
+          statsData = await statsRes.json();
+        } catch (e) { /* leave empty, formatStatLine handles missing gracefully */ }
+        if (myEpoch !== pcConfigEpoch) return; // config changed while stats were in flight -- drop it
+        const playerStatsRow = (statsData || []).find(r => r.player_id === PC_PLAYER_ID);
+        document.getElementById('pc-stats').textContent = formatStatLine(playerStatsRow ? playerStatsRow.stats : null);
+
+        // Ticker: still genius-sourced -- only ever needs the SINGLE most recent play,
+        // which is always within the limit=25 window regardless of the bug above.
+        // Settle policy: only fires on a new CONFIRMED play sequence.
+        const playerPlays = plays.filter(p =>
+          p.play_stats && p.play_stats.some(ps => ps.player && ps.player.player_id === PC_PLAYER_ID)
+        );
+        const mostRecentPlayerPlay = playerPlays.find(p => p.metadata && p.metadata.play_state === 'confirmed');
+
+        if (mostRecentPlayerPlay) {
+          const ps = mostRecentPlayerPlay.play_stats.find(x => x.player && x.player.player_id === PC_PLAYER_ID);
+          const seq = mostRecentPlayerPlay.sequence;
+          if (!pcBaselineSeeded) {
+            pcLastTickerSequence = seq;
+            pcBaselineSeeded = true;
+          } else if (seq !== pcLastTickerSequence) {
+            pcLastTickerSequence = seq;
+            const deltaLine = formatDeltaLine(ps.stats || {});
+            if (deltaLine) showTicker(deltaLine);
+          }
+        }
+      } catch (e) {
+        // ignore transient fetch errors -- next 3s poll will retry
+      }
+    }
+
+    pollPlayerCard();
+    setInterval(pollPlayerCard, PC_POLL_MS);
+
+    // ---- R1 CONFIG + R3 STATE_SYNC over the custom namespace (2026-09-20) ----
+    // Validate BEFORE applying anything: a partial/garbled CONFIG must never half-update the card.
+    function isNonEmpty(v) {
+      return (typeof v === 'string' && v.trim() !== '') || (typeof v === 'number' && isFinite(v));
+    }
+
+    function currentConfig() {
+      return { gameId: PC_GAME_ID, playerId: PC_PLAYER_ID, playerName: PC_PLAYER_NAME, awayTeam: PC_AWAY_TEAM, homeTeam: PC_HOME_TEAM };
+    }
+
+    function applyConfig(cfg) {
+      if (!cfg || !['gameId', 'playerId', 'playerName', 'awayTeam', 'homeTeam'].every(k => isNonEmpty(cfg[k]))) {
+        console.warn('CONFIG rejected (missing/empty field), keeping current config', cfg);
+        return false;
+      }
+      const changedTarget = String(cfg.gameId) !== PC_GAME_ID || String(cfg.playerId) !== PC_PLAYER_ID;
+      PC_GAME_ID = String(cfg.gameId);
+      PC_PLAYER_ID = String(cfg.playerId);
+      PC_PLAYER_NAME = String(cfg.playerName);
+      PC_AWAY_TEAM = String(cfg.awayTeam);
+      PC_HOME_TEAM = String(cfg.homeTeam);
+      pcHasConfig = true;
+      pcConfigEpoch++; // invalidates any poll already in flight under the old config
+
+      if (changedTarget) {
+        // New game/player: re-seed so the new player's already-existing latest play does NOT fire
+        // a false ticker, and clear whatever ticker the old player left showing.
+        pcLastTickerSequence = null;
+        pcBaselineSeeded = false;
+        if (pcTickerHideTimer) { clearTimeout(pcTickerHideTimer); pcTickerHideTimer = null; }
+        document.getElementById('pc-ticker').classList.remove('visible');
+      }
+      pollPlayerCard(); // repaint now instead of waiting up to PC_POLL_MS
+      return true;
+    }
+
+    // Namespaces must be declared BEFORE start() (Google's migration guide: via a message listener
+    // and/or CastReceiverOptions.customNamespaces) -- we do both. Exactly ONE listener.
+    // FAIL-SOFT: Google's reference says addCustomMessageListener throws if the system is not
+    // ready or the namespace is unsupported, and it is NOT verified that calling it before
+    // start() is accepted on this receiver. A throw here would abort the script before
+    // context.start() and the whole receiver (video + card) would die -- far worse than R1/R3
+    // not working. So the registration is caught; on failure the card keeps its default
+    // config (exactly the pre-R1 behavior) and start() still runs.
+    const receiverOptions = new cast.framework.CastReceiverOptions();
+    receiverOptions.customNamespaces = {};
+    receiverOptions.customNamespaces[CAST_NAMESPACE] = cast.framework.system.MessageType.JSON;
+
+    try {
+      context.addCustomMessageListener(CAST_NAMESPACE, (event) => {
+        const msg = event.data;
+        if (!msg || typeof msg !== 'object') return;
+        if (msg.type === 'CONFIG') {
+          applyConfig(msg);
+        } else if (msg.type === 'STATE_REQUEST') {
+          // Reply to THIS sender only: sendCustomMessage is documented as per-sender, no broadcast.
+          context.sendCustomMessage(CAST_NAMESPACE, event.senderId, {
+            type: 'STATE_SYNC',
+            hasConfig: pcHasConfig,
+            config: currentConfig()
+          });
+        }
+      });
+    } catch (err) {
+      console.error('custom-namespace listener registration failed; CONFIG/STATE_SYNC disabled, defaults in effect', err);
+    }
+
+    context.start(receiverOptions);
+  </script>
+</body>
+</html>
