@@ -8,8 +8,14 @@
   .stage { position: relative; width: 100vw; height: 100vh; }
   cast-media-player { width: 100%; height: 100%; }
 
-  .player-card {
+  .player-cards {
     position: absolute; bottom: 0; left: 0;
+    display: flex;
+    flex-direction: column-reverse;
+    gap: 10px;
+    z-index: 10;
+  }
+  .player-card {
     width: 380px;
     background: rgba(0,0,0,0.85);
     border-radius: 0 20px 0 0;
@@ -17,7 +23,6 @@
     color: #fff;
     font-size: 22px;
     box-sizing: border-box;
-    z-index: 10;
   }
   .player-card .pc-name {
     color: #f0b429;
@@ -62,17 +67,7 @@
   <div class="stage">
     <cast-media-player></cast-media-player>
 
-    <div class="player-card" id="player-card">
-      <div class="pc-name" id="pc-name">--</div>
-      <div class="pc-game-state">
-        <span id="pc-clock">--</span>
-        <span id="pc-score">--</span>
-        <span id="pc-poss">--</span>
-      </div>
-      <div class="pc-situation" id="pc-situation">--</div>
-      <div class="pc-stats" id="pc-stats">--</div>
-      <div class="pc-ticker" id="pc-ticker"></div>
-    </div>
+    <div class="player-cards" id="player-cards"></div>
   </div>
 
   <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
@@ -80,42 +75,118 @@
     const context = cast.framework.CastReceiverContext.getInstance();
     const playerManager = context.getPlayerManager();
 
-    // ---- Live player-stat card (Sleeper-sourced, no backend/proxy needed) ----
-    // Ported directly from public/index.html's identical logic (2026-09-20).
-    // Sleeper's endpoints are public/unauthenticated, so the receiver -- an
-    // embedded browser on the Chromecast itself -- can fetch them directly,
-    // same as the sender does. No proxy involved since this isn't user-pasted
-    // third-party content.
-    // Test-config DEFAULTS. These are `let` (not const) because the sender can replace them at
-    // runtime with a CONFIG message (R1, 2026-09-20), so one hosted receiver serves any game/
-    // player instead of needing an edit + redeploy per game. A receiver that never gets a CONFIG
-    // behaves exactly as before (these defaults), so an older sender still works.
-    // Test config: Jonathan Taylor, IND @ KC, Week 2 2026, game_id 202610216.
-    // Field mapping + design rationale: see projects/stream-overlay.md "SCOPE LOCKED" block.
-    let PC_GAME_ID = '202610216';
+    // ---- Live player-stat cards (Sleeper-sourced, no backend/proxy needed) ----
+    // Multi-card port (2026-09-21) of public/index.html's 3-card logic. Sleeper's endpoints are
+    // public/unauthenticated, so the receiver -- an embedded browser on the Chromecast itself --
+    // can fetch them directly, same as the sender does. ONE fetch pair per poll is shared by all
+    // cards: game state (clock/score/possession/down-distance) is game-wide, only the stat row
+    // and ticker are per-player.
+    // Test-config DEFAULTS. `let` (not const) because the sender can replace them at runtime with
+    // a CONFIG message (R1), so one hosted receiver serves any game/lineup instead of needing an
+    // edit + redeploy per game. A receiver that never gets a CONFIG shows these defaults.
+    // Default lineup: NYG @ LAR, Week 2 MNF 2026, game_id 202610232 -- Cam Skattebo (RB),
+    // Isaiah Likely (TE), Matthew Stafford (QB).
+    let PC_GAME_ID = '202610232';
     const PC_SEASON = 2026;
     const PC_SEASON_TYPE = 'regular';
-    let PC_PLAYER_ID = '6813';
-    let PC_PLAYER_NAME = 'Jonathan Taylor';
-    let PC_AWAY_TEAM = 'IND';
-    let PC_HOME_TEAM = 'KC';
+    let PC_AWAY_TEAM = 'NYG';
+    let PC_HOME_TEAM = 'LAR';
+    let PC_PLAYERS = [
+      { playerId: '12481', playerName: 'Cam Skattebo', position: 'RB' },
+      { playerId: '8131', playerName: 'Isaiah Likely', position: 'TE' },
+      { playerId: '421', playerName: 'Matthew Stafford', position: 'QB' }
+    ];
     const PC_POLL_MS = 3000;
     const PC_TICKER_DISPLAY_MS = 10000;
 
     // Bumped on every accepted CONFIG. An in-flight poll captures the value at its start and
     // discards its result if this changed while it was awaiting the network -- otherwise a poll
-    // begun under the OLD player could paint stale data over the NEW player's card.
+    // begun under the OLD lineup could paint stale data over the NEW lineup's cards.
     let pcConfigEpoch = 0;
     let pcHasConfig = false; // true once a valid CONFIG has been applied (reported in STATE_SYNC)
 
     // Custom message channel shared with the sender (index.html CAST_NAMESPACE).
     const CAST_NAMESPACE = 'urn:x-cast:com.streamoverlay.status';
 
+    // ---- Card container: rebuilt from PC_PLAYERS whenever the lineup/game changes. ----
+    // pcCards[playerId] holds the element refs + PER-PLAYER ticker state, so one player's play
+    // can never suppress or trigger another player's ticker.
+    const playerCardsEl = document.getElementById('player-cards');
+    let pcCards = {};
+
+    function buildCards() {
+      // Clear any pending ticker timers from the old cards before discarding them.
+      Object.keys(pcCards).forEach(function(id) {
+        if (pcCards[id].tickerHideTimer) clearTimeout(pcCards[id].tickerHideTimer);
+      });
+      playerCardsEl.innerHTML = '';
+      pcCards = {};
+      PC_PLAYERS.forEach(function(p) {
+        const card = document.createElement('div');
+        card.className = 'player-card';
+        const nameDiv = document.createElement('div');
+        nameDiv.className = 'pc-name';
+        nameDiv.textContent = p.playerName;
+        const stateDiv = document.createElement('div');
+        stateDiv.className = 'pc-game-state';
+        const clockSpan = document.createElement('span');
+        clockSpan.className = 'pc-clock';
+        clockSpan.textContent = '--';
+        const scoreSpan = document.createElement('span');
+        scoreSpan.className = 'pc-score';
+        scoreSpan.textContent = '--';
+        const possSpan = document.createElement('span');
+        possSpan.className = 'pc-poss';
+        possSpan.textContent = '--';
+        stateDiv.appendChild(clockSpan);
+        stateDiv.appendChild(scoreSpan);
+        stateDiv.appendChild(possSpan);
+        const sitDiv = document.createElement('div');
+        sitDiv.className = 'pc-situation';
+        sitDiv.textContent = '--';
+        const statsDiv = document.createElement('div');
+        statsDiv.className = 'pc-stats';
+        statsDiv.textContent = '--';
+        const tickerDiv = document.createElement('div');
+        tickerDiv.className = 'pc-ticker';
+        card.appendChild(nameDiv);
+        card.appendChild(stateDiv);
+        card.appendChild(sitDiv);
+        card.appendChild(statsDiv);
+        card.appendChild(tickerDiv);
+        playerCardsEl.appendChild(card);
+        pcCards[p.playerId] = {
+          playerName: p.playerName,
+          position: p.position,
+          clockEl: clockSpan,
+          scoreEl: scoreSpan,
+          possEl: possSpan,
+          sitEl: sitDiv,
+          statsEl: statsDiv,
+          tickerEl: tickerDiv,
+          tickerHideTimer: null,
+          lastTickerSequence: null,
+          baselineSeeded: false
+        };
+      });
+    }
+    buildCards();
+
     // Compact Sleeper-style stat-line builder. Order mirrors the matchup-page
     // row anatomy documented in live-stats Finding 1 (RB form: CAR, YD, REC, YD, TD).
-    function formatStatLine(stats) {
+    // QB branch: CMP/ATT, pass YD, pass TD, then rushing.
+    function formatStatLine(stats, position) {
       if (!stats) return '--';
       const parts = [];
+      if (position === 'QB') {
+        if (stats.pass_att) parts.push(`${stats.pass_cmp || 0}/${stats.pass_att} CMP`);
+        if (stats.pass_yd) parts.push(`${stats.pass_yd} YD`);
+        if (stats.pass_td) parts.push(`${stats.pass_td} TD`);
+        if (stats.rush_att) parts.push(`${stats.rush_att} CAR`);
+        if (stats.rush_yd) parts.push(`${stats.rush_yd} YD`);
+        if (stats.rush_td) parts.push(`${stats.rush_td} TD`);
+        return parts.length ? parts.join(', ') : '--';
+      }
       if (stats.rush_att) parts.push(`${stats.rush_att} CAR`);
       if (stats.rush_yd) parts.push(`${stats.rush_yd} YD`);
       if (stats.rec_tgt || stats.rec) parts.push(`${stats.rec || 0}/${stats.rec_tgt || 0} REC`);
@@ -127,8 +198,17 @@
 
     // Compact delta line for the 10s ticker -- same key set, but only nonzero
     // per-play deltas (a play usually touches 1-3 keys, e.g. a run: rush_att+rush_yd).
-    function formatDeltaLine(deltaStats) {
+    function formatDeltaLine(deltaStats, position) {
       const parts = [];
+      if (position === 'QB') {
+        if (deltaStats.pass_cmp) parts.push(`+${deltaStats.pass_cmp} CMP`);
+        if (deltaStats.pass_yd) parts.push(`${deltaStats.pass_yd >= 0 ? '+' : ''}${deltaStats.pass_yd} YD`);
+        if (deltaStats.pass_td) parts.push(`+${deltaStats.pass_td} TD`);
+        if (deltaStats.rush_att) parts.push(`+${deltaStats.rush_att} CAR`);
+        if (deltaStats.rush_yd) parts.push(`${deltaStats.rush_yd >= 0 ? '+' : ''}${deltaStats.rush_yd} YD`);
+        if (deltaStats.rush_td) parts.push(`+${deltaStats.rush_td} TD`);
+        return parts.length ? parts.join(', ') : null;
+      }
       if (deltaStats.rush_att) parts.push(`+${deltaStats.rush_att} CAR`);
       if (deltaStats.rush_yd) parts.push(`${deltaStats.rush_yd >= 0 ? '+' : ''}${deltaStats.rush_yd} YD`);
       if (deltaStats.rec) parts.push(`+${deltaStats.rec} REC`);
@@ -138,18 +218,13 @@
       return parts.length ? parts.join(', ') : null;
     }
 
-    let pcLastTickerSequence = null; // last play sequence we've already shown a ticker for
-    let pcTickerHideTimer = null;
-    let pcBaselineSeeded = false; // true after the first poll -- prevents firing a ticker
-                                   // for a play that already happened before page load
-
-    function showTicker(text) {
-      const el = document.getElementById('pc-ticker');
-      el.textContent = text;
-      el.classList.add('visible');
-      if (pcTickerHideTimer) clearTimeout(pcTickerHideTimer);
-      pcTickerHideTimer = setTimeout(() => {
-        el.classList.remove('visible');
+    // Per-player ticker state lives in pcCards[playerId], NOT module-level vars.
+    function showTicker(card, text) {
+      card.tickerEl.textContent = text;
+      card.tickerEl.classList.add('visible');
+      if (card.tickerHideTimer) clearTimeout(card.tickerHideTimer);
+      card.tickerHideTimer = setTimeout(() => {
+        card.tickerEl.classList.remove('visible');
       }, PC_TICKER_DISPLAY_MS);
     }
 
@@ -193,65 +268,70 @@
         let statePlay = plays.find(p => p.metadata && p.metadata.down) || plays[0];
         const m = statePlay.metadata || {};
 
-        document.getElementById('pc-name').textContent = PC_PLAYER_NAME;
-
+        // Game-wide display strings, computed ONCE and painted onto every card.
         const clockStr = specialState
           ? specialState
           : ((m.quarter_name != null && m.time_remaining_minutes != null)
               ? `Q${m.quarter_name} ${m.time_remaining_minutes}:${String(m.time_remaining_seconds).padStart(2, '0')}`
               : '--');
-        document.getElementById('pc-clock').textContent = clockStr;
 
         const awayPts = plays[0].metadata ? plays[0].metadata.away_points : undefined;
         const homePts = plays[0].metadata ? plays[0].metadata.home_points : undefined;
-        document.getElementById('pc-score').textContent =
-          (awayPts != null && homePts != null) ? `${PC_AWAY_TEAM} ${awayPts} - ${PC_HOME_TEAM} ${homePts}` : '--';
+        const scoreStr = (awayPts != null && homePts != null) ? `${PC_AWAY_TEAM} ${awayPts} - ${PC_HOME_TEAM} ${homePts}` : '--';
 
-        // Possession + situation rows are HIDDEN (not blanked) in the special states,
-        // and restored as soon as play resumes.
-        const possEl = document.getElementById('pc-poss');
-        const sitEl = document.getElementById('pc-situation');
-        possEl.style.display = specialState ? 'none' : '';
-        sitEl.style.display = specialState ? 'none' : '';
-
-        possEl.textContent = m.possession ? `${m.possession} ball` : '--';
-
+        const possStr = m.possession ? `${m.possession} ball` : '--';
         const situationStr = (m.down && m.distance != null && m.yard_line != null)
           ? `${ordinal(m.down)} & ${m.distance} @ ${m.yard_line_territory || ''} ${m.yard_line}`.trim()
           : '--';
-        sitEl.textContent = situationStr;
 
-        // Cumulative stats: PRIMARY SOURCE = sportradar /stats/nfl/game/<id> row --
-        // a true whole-game cumulative total, unaffected by genius's limit=25
-        // play-window bug (confirmed 2026-09-20, see project Findings).
+        // Cumulative stats: PRIMARY SOURCE = sportradar /stats/nfl/game/<id> row -- a true
+        // whole-game cumulative total, unaffected by genius's limit=25 play-window bug
+        // (confirmed 2026-09-20, see project Findings).
         let statsData = [];
         try {
           statsData = await statsRes.json();
         } catch (e) { /* leave empty, formatStatLine handles missing gracefully */ }
         if (myEpoch !== pcConfigEpoch) return; // config changed while stats were in flight -- drop it
-        const playerStatsRow = (statsData || []).find(r => r.player_id === PC_PLAYER_ID);
-        document.getElementById('pc-stats').textContent = formatStatLine(playerStatsRow ? playerStatsRow.stats : null);
 
-        // Ticker: still genius-sourced -- only ever needs the SINGLE most recent play,
-        // which is always within the limit=25 window regardless of the bug above.
-        // Settle policy: only fires on a new CONFIRMED play sequence.
-        const playerPlays = plays.filter(p =>
-          p.play_stats && p.play_stats.some(ps => ps.player && ps.player.player_id === PC_PLAYER_ID)
-        );
-        const mostRecentPlayerPlay = playerPlays.find(p => p.metadata && p.metadata.play_state === 'confirmed');
+        // Paint each card from the SAME two responses already in hand: 3 players cost exactly
+        // the same 2 requests as 1.
+        Object.keys(pcCards).forEach(function(playerId) {
+          const card = pcCards[playerId];
 
-        if (mostRecentPlayerPlay) {
-          const ps = mostRecentPlayerPlay.play_stats.find(x => x.player && x.player.player_id === PC_PLAYER_ID);
-          const seq = mostRecentPlayerPlay.sequence;
-          if (!pcBaselineSeeded) {
-            pcLastTickerSequence = seq;
-            pcBaselineSeeded = true;
-          } else if (seq !== pcLastTickerSequence) {
-            pcLastTickerSequence = seq;
-            const deltaLine = formatDeltaLine(ps.stats || {});
-            if (deltaLine) showTicker(deltaLine);
+          card.clockEl.textContent = clockStr;
+          card.scoreEl.textContent = scoreStr;
+
+          // Possession + situation rows are HIDDEN (not blanked) in the special states,
+          // and restored as soon as play resumes.
+          card.possEl.style.display = specialState ? 'none' : '';
+          card.sitEl.style.display = specialState ? 'none' : '';
+          card.possEl.textContent = possStr;
+          card.sitEl.textContent = situationStr;
+
+          const playerStatsRow = (statsData || []).find(r => r.player_id === playerId);
+          card.statsEl.textContent = formatStatLine(playerStatsRow ? playerStatsRow.stats : null, card.position);
+
+          // Ticker: still genius-sourced -- only ever needs the SINGLE most recent play FOR THIS
+          // PLAYER, which is always within the limit=25 window. Settle policy: only fires on a
+          // new CONFIRMED play sequence.
+          const playerPlays = plays.filter(p =>
+            p.play_stats && p.play_stats.some(ps => ps.player && ps.player.player_id === playerId)
+          );
+          const mostRecentPlayerPlay = playerPlays.find(p => p.metadata && p.metadata.play_state === 'confirmed');
+
+          if (mostRecentPlayerPlay) {
+            const ps = mostRecentPlayerPlay.play_stats.find(x => x.player && x.player.player_id === playerId);
+            const seq = mostRecentPlayerPlay.sequence;
+            if (!card.baselineSeeded) {
+              card.lastTickerSequence = seq;
+              card.baselineSeeded = true;
+            } else if (seq !== card.lastTickerSequence) {
+              card.lastTickerSequence = seq;
+              const deltaLine = formatDeltaLine(ps.stats || {}, card.position);
+              if (deltaLine) showTicker(card, deltaLine);
+            }
           }
-        }
+        });
       } catch (e) {
         // ignore transient fetch errors -- next 3s poll will retry
       }
@@ -260,37 +340,53 @@
     pollPlayerCard();
     setInterval(pollPlayerCard, PC_POLL_MS);
 
-    // ---- R1 CONFIG + R3 STATE_SYNC over the custom namespace (2026-09-20) ----
-    // Validate BEFORE applying anything: a partial/garbled CONFIG must never half-update the card.
+    // ---- R1 CONFIG + R3 STATE_SYNC over the custom namespace ----
+    // Validate BEFORE applying anything: a partial/garbled CONFIG must never half-update the cards.
     function isNonEmpty(v) {
       return (typeof v === 'string' && v.trim() !== '') || (typeof v === 'number' && isFinite(v));
     }
 
     function currentConfig() {
-      return { gameId: PC_GAME_ID, playerId: PC_PLAYER_ID, playerName: PC_PLAYER_NAME, awayTeam: PC_AWAY_TEAM, homeTeam: PC_HOME_TEAM };
+      return { gameId: PC_GAME_ID, awayTeam: PC_AWAY_TEAM, homeTeam: PC_HOME_TEAM, players: PC_PLAYERS };
     }
 
+    // CONFIG shape (matches index.html PC_CONFIG): { gameId, awayTeam, homeTeam,
+    // players: [{ playerId, playerName, position }, ...] }. Every field and every player entry
+    // must validate or the WHOLE config is rejected and the current lineup stays untouched.
     function applyConfig(cfg) {
-      if (!cfg || !['gameId', 'playerId', 'playerName', 'awayTeam', 'homeTeam'].every(k => isNonEmpty(cfg[k]))) {
-        console.warn('CONFIG rejected (missing/empty field), keeping current config', cfg);
+      const valid = cfg
+        && ['gameId', 'awayTeam', 'homeTeam'].every(k => isNonEmpty(cfg[k]))
+        && Array.isArray(cfg.players)
+        && cfg.players.length > 0
+        && cfg.players.every(p => p && isNonEmpty(p.playerId) && isNonEmpty(p.playerName) && isNonEmpty(p.position));
+      if (!valid) {
+        console.warn('CONFIG rejected (missing/empty field or bad players[]), keeping current config', cfg);
         return false;
       }
-      const changedTarget = String(cfg.gameId) !== PC_GAME_ID || String(cfg.playerId) !== PC_PLAYER_ID;
+      const newPlayers = cfg.players.map(p => ({
+        playerId: String(p.playerId),
+        playerName: String(p.playerName),
+        position: String(p.position)
+      }));
+      // Duplicate playerIds would collide as pcCards keys and silently drop a card -- reject.
+      if (new Set(newPlayers.map(p => p.playerId)).size !== newPlayers.length) {
+        console.warn('CONFIG rejected (duplicate playerId in players[]), keeping current config', cfg);
+        return false;
+      }
+      const sameTarget = String(cfg.gameId) === PC_GAME_ID
+        && JSON.stringify(newPlayers) === JSON.stringify(PC_PLAYERS);
       PC_GAME_ID = String(cfg.gameId);
-      PC_PLAYER_ID = String(cfg.playerId);
-      PC_PLAYER_NAME = String(cfg.playerName);
       PC_AWAY_TEAM = String(cfg.awayTeam);
       PC_HOME_TEAM = String(cfg.homeTeam);
+      PC_PLAYERS = newPlayers;
       pcHasConfig = true;
       pcConfigEpoch++; // invalidates any poll already in flight under the old config
 
-      if (changedTarget) {
-        // New game/player: re-seed so the new player's already-existing latest play does NOT fire
-        // a false ticker, and clear whatever ticker the old player left showing.
-        pcLastTickerSequence = null;
-        pcBaselineSeeded = false;
-        if (pcTickerHideTimer) { clearTimeout(pcTickerHideTimer); pcTickerHideTimer = null; }
-        document.getElementById('pc-ticker').classList.remove('visible');
+      if (!sameTarget) {
+        // New game/lineup: rebuild the cards. Fresh cards start with baselineSeeded=false, so the
+        // new players' already-existing latest plays do NOT fire false tickers, and the old
+        // players' tickers/timers are cleared by buildCards().
+        buildCards();
       }
       pollPlayerCard(); // repaint now instead of waiting up to PC_POLL_MS
       return true;
@@ -301,9 +397,9 @@
     // FAIL-SOFT: Google's reference says addCustomMessageListener throws if the system is not
     // ready or the namespace is unsupported, and it is NOT verified that calling it before
     // start() is accepted on this receiver. A throw here would abort the script before
-    // context.start() and the whole receiver (video + card) would die -- far worse than R1/R3
-    // not working. So the registration is caught; on failure the card keeps its default
-    // config (exactly the pre-R1 behavior) and start() still runs.
+    // context.start() and the whole receiver (video + cards) would die -- far worse than R1/R3
+    // not working. So the registration is caught; on failure the cards keep their default
+    // config and start() still runs.
     const receiverOptions = new cast.framework.CastReceiverOptions();
     receiverOptions.customNamespaces = {};
     receiverOptions.customNamespaces[CAST_NAMESPACE] = cast.framework.system.MessageType.JSON;
