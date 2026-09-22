@@ -417,6 +417,17 @@
     receiverOptions.customNamespaces = {};
     receiverOptions.customNamespaces[CAST_NAMESPACE] = cast.framework.system.MessageType.JSON;
 
+    // playbackConfig tuning (2026-09-21): some captured live sources (see project Findings --
+    // "diagnose Chromecast receiver buffering loop") expose an unusually thin live window
+    // (as few as ~4 segments / ~15s total buffer depth). CAF's stock default resume threshold
+    // can require more buffered segments than a stream like that will ever provide, causing a
+    // perpetual auto-pause/auto-resume cycle (black screen, seekbar fill-and-reset). Lowering
+    // autoResumeNumberOfSegments lets playback resume with fewer segments in hand. Diagnostic
+    // only -- does not fix the underlying thin-window source, just makes CAF more tolerant of it.
+    const playbackConfig = new cast.framework.PlaybackConfig();
+    playbackConfig.autoResumeNumberOfSegments = 1;
+    receiverOptions.playbackConfig = playbackConfig;
+
     try {
       context.addCustomMessageListener(CAST_NAMESPACE, (event) => {
         const msg = event.data;
