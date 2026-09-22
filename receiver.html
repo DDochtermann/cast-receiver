@@ -293,8 +293,26 @@
         const scoreStr = (awayPts != null && homePts != null) ? `${PC_AWAY_TEAM} ${awayPts} - ${PC_HOME_TEAM} ${homePts}` : '--';
 
         const possStr = m.possession ? `${m.possession} ball` : '--';
-        const situationStr = (m.down && m.distance != null && m.yard_line != null)
-          ? `${ordinal(m.down)} & ${m.distance} @ ${m.yard_line_territory || ''} ${m.yard_line}`.trim()
+
+        // Down/distance/yard_line LOOKAHEAD (2026-09-21c fix): a single play record
+        // bundles a PRE-SNAP down/distance with a clock reading closer to when that
+        // play FINISHED and was posted -- the two fields are not the same moment in
+        // time. Displaying both straight from statePlay always shows down/distance one
+        // play "behind" what the clock implies (confirmed against real game data --
+        // see project Findings). Fix: catch down/distance UP to the clock by looking
+        // for the nearest down-bearing play NEWER than statePlay (lower array index,
+        // since plays[] is newest-first) and using THAT play's down/distance/yard_line
+        // instead, while clockStr/scoreStr/possStr stay sourced from statePlay/plays[0]
+        // exactly as before. Falls back to statePlay's own down/distance if statePlay is
+        // already the newest down-bearing play (nothing newer to catch up to).
+        const statePlayIdx = plays.indexOf(statePlay);
+        let situationSourceMeta = m;
+        for (let i = statePlayIdx - 1; i >= 0; i--) {
+          const cand = plays[i].metadata;
+          if (cand && cand.down) { situationSourceMeta = cand; break; }
+        }
+        const situationStr = (situationSourceMeta.down && situationSourceMeta.distance != null && situationSourceMeta.yard_line != null)
+          ? `${ordinal(situationSourceMeta.down)} & ${situationSourceMeta.distance} @ ${situationSourceMeta.yard_line_territory || ''} ${situationSourceMeta.yard_line}`.trim()
           : '--';
 
         // Cumulative stats: PRIMARY SOURCE = sportradar /stats/nfl/game/<id> row -- a true
