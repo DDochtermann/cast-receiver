@@ -104,10 +104,15 @@
     const PC_SEASON_TYPE = 'regular';
     let PC_AWAY_TEAM = 'NYG';
     let PC_HOME_TEAM = 'LAR';
+    // 2026-09-23 port: PC_WEEK is user-set on the sender's orchestrator page and arrives via CONFIG
+    // (null until set -- a null week is LEGAL, it only means the pregame /scores lookup is skipped).
+    // `team` per player (NYG/LAR real roster team, independent of home/away) drives own-score-first
+    // ordering + possession-vs-card comparison, kept in lockstep with index.html PC_CONFIG.
+    let PC_WEEK = null;
     let PC_PLAYERS = [
-      { playerId: '12481', playerName: 'Cam Skattebo', position: 'RB' },
-      { playerId: '8131', playerName: 'Isaiah Likely', position: 'TE' },
-      { playerId: '421', playerName: 'Matthew Stafford', position: 'QB' }
+      { playerId: '12481', playerName: 'Cam Skattebo', position: 'RB', team: 'NYG' },
+      { playerId: '8131', playerName: 'Isaiah Likely', position: 'TE', team: 'LAR' },
+      { playerId: '421', playerName: 'Matthew Stafford', position: 'QB', team: 'LAR' }
     ];
     const PC_POLL_MS = 3000;
     const PC_TICKER_DISPLAY_MS = 10000;
@@ -171,6 +176,7 @@
         pcCards[p.playerId] = {
           playerName: p.playerName,
           position: p.position,
+          team: p.team,
           clockEl: clockSpan,
           scoreEl: scoreSpan,
           possEl: possSpan,
@@ -225,6 +231,10 @@
       if (deltaStats.rush_att) parts.push(`+${deltaStats.rush_att} CAR`);
       if (deltaStats.rush_yd) parts.push(`${deltaStats.rush_yd >= 0 ? '+' : ''}${deltaStats.rush_yd} YD`);
       if (deltaStats.rec) parts.push(`+${deltaStats.rec} REC`);
+      // +TGT ticker line (2026-09-23 port from debug-cards.html): gated on !rec so a completed
+      // catch doesn't double-print "+1 REC" and "+1 TGT" for the same play -- a target that
+      // wasn't caught is the only case needing its own line.
+      if (deltaStats.rec_tgt && !deltaStats.rec) parts.push(`+${deltaStats.rec_tgt} TGT`);
       if (deltaStats.rec_yd) parts.push(`${deltaStats.rec_yd >= 0 ? '+' : ''}${deltaStats.rec_yd} YD`);
       if (deltaStats.rush_td) parts.push(`+${deltaStats.rush_td} TD`);
       if (deltaStats.rec_td) parts.push(`+${deltaStats.rec_td} TD`);
@@ -247,6 +257,117 @@
       return n + (s[(v - 20) % 10] || s[v] || s[0]);
     }
 
+    // ---- Backward-state derivation (2026-09-23 port from public/index.html, itself a port of
+    //      debug-cards.html's specialLabelForPlay/terminalPhaseLabelForPlay + computeEndSituations'
+    //      newest-play classification, Q1 "most current" approach) ----
+    // Live only ever has plays up to now, so there is no forward search for the NEWEST play; this
+    // classifies it directly. Kept byte-for-byte in lockstep with index.html's copy.
+    function specialLabelForPlay(m) {
+      if (m.play_type === 'kickoff' || m.play_type === 'kickoff_touchback' || m.play_type === 'kickoff_muffed') {
+        return (m.team || m.possession) + ' Kickoff';
+      }
+      if (m.play_type === 'extra_point' || m.play_type === 'two_point_conversion' || m.play_type === 'two_point_attempt') {
+        return (m.team || m.possession) + ' Extra Point';
+      }
+      if (m.play_type === 'field_goal' && /is GOOD/i.test(m.description || '')) {
+        return (m.team || m.possession) + ' Kickoff';
+      }
+      return null;
+    }
+    function terminalPhaseLabelForPlay(m) {
+      if (m.play_type === 'game_over') return 'Final';
+      if (m.play_type === 'period_end' && m.quarter_name === '2') return 'Halftime';
+      return null;
+    }
+
+    // deriveCurrentState(plays): plays is the newest-first array from the genius endpoint. Returns
+    // { clockStr, awayPts, homePts, possession, specialLabel, endZone, down, distance, fieldTeam,
+    // fieldYards, gamestate: 'LIVE'|'HALFTIME'|'FINAL' }. Terminal phases first, then the
+    // specialLabel check BEFORE is_scoring_play/endZone (extra_point/made-FG also carry
+    // is_scoring_play:true and would otherwise be mis-tagged endZone -- same ordering debug uses),
+    // else the existing 2026-09-21c down/distance LOOKAHEAD (nearest down-bearing play NEWER than
+    // statePlay, since a record's down/distance is pre-snap while its clock reads post-play).
+    function deriveCurrentState(plays) {
+      const newest = plays[0];
+      const nm = newest.metadata || {};
+
+      const term = terminalPhaseLabelForPlay(nm);
+      if (term === 'Final') {
+        return { clockStr: '', gamestate: 'FINAL', awayPts: nm.away_points, homePts: nm.home_points, possession: null, specialLabel: null, endZone: false };
+      }
+      if (term === 'Halftime') {
+        return { clockStr: 'Halftime', gamestate: 'HALFTIME', awayPts: nm.away_points, homePts: nm.home_points, possession: null, specialLabel: null, endZone: false };
+      }
+
+      let statePlay = plays.find(p => p.metadata && p.metadata.down) || newest;
+      const m = statePlay.metadata || {};
+      const clockStr = (m.quarter_name != null && m.time_remaining_minutes != null)
+        ? `Q${m.quarter_name} ${m.time_remaining_minutes}:${String(m.time_remaining_seconds).padStart(2, '0')}`
+        : '--';
+
+      const awayPts = nm.away_points;
+      const homePts = nm.home_points;
+
+      const label = specialLabelForPlay(nm);
+      if (label) {
+        return { clockStr, gamestate: 'LIVE', awayPts, homePts, possession: nm.possession, specialLabel: label, endZone: false, down: null, distance: null };
+      }
+      if (nm.is_scoring_play) {
+        return { clockStr, gamestate: 'LIVE', awayPts, homePts, possession: nm.possession, specialLabel: null, endZone: true, down: null, distance: null };
+      }
+
+      const statePlayIdx = plays.indexOf(statePlay);
+      let situationSourceMeta = m;
+      for (let i = statePlayIdx - 1; i >= 0; i--) {
+        const cand = plays[i].metadata;
+        if (cand && cand.down) { situationSourceMeta = cand; break; }
+      }
+      return {
+        clockStr, gamestate: 'LIVE', awayPts, homePts,
+        possession: situationSourceMeta.possession || m.possession,
+        specialLabel: null, endZone: false,
+        down: situationSourceMeta.down, distance: situationSourceMeta.distance,
+        fieldTeam: situationSourceMeta.yard_line_territory, fieldYards: situationSourceMeta.yard_line
+      };
+    }
+
+    // ---- Pregame data source (2026-09-23 port; Q2/Q2a/Q2b confirmed) ----
+    // Sleeper's public /scores/nfl/{seasonType}/{season}/{week} (no auth) returns the week's games;
+    // each has top-level `date` + `.metadata.{game_key,away_team,home_team,has_started,is_in_progress,
+    // is_over}`. Used ONLY for the pregame VS/@ line since plays[] is empty before kickoff. Week comes
+    // from PC_WEEK (user-set on the sender page, delivered via CONFIG). Time is FIXED ET regardless of
+    // viewer (Q2b). Returns null when week is unset / game not found / fetch fails.
+    let pregameInfo = null;
+    async function fetchPregameInfo() {
+      if (!PC_WEEK) return null;
+      try {
+        const res = await fetch(
+          `https://api.sleeper.app/scores/nfl/${PC_SEASON_TYPE}/${PC_SEASON}/${PC_WEEK}`,
+          { cache: 'no-store' }
+        );
+        const games = await res.json();
+        const game = (games || []).find(g => g.metadata && g.metadata.game_key &&
+          g.metadata.away_team === PC_AWAY_TEAM && g.metadata.home_team === PC_HOME_TEAM);
+        if (!game) return null;
+        let dayTime = '';
+        if (game.date) {
+          const d = new Date(game.date);
+          if (!isNaN(d.getTime())) {
+            const day = d.toLocaleString('en-US', { weekday: 'short', timeZone: 'America/New_York' });
+            const time = d.toLocaleString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/New_York' });
+            dayTime = `${day} ${time} ET`;
+          }
+        }
+        return {
+          dayTime,
+          hasStarted: !!(game.metadata && game.metadata.has_started),
+          isOver: !!(game.metadata && game.metadata.is_over)
+        };
+      } catch (e) {
+        return null; // transient fetch error -- next poll retries
+      }
+    }
+
     async function pollPlayerCard() {
       const myEpoch = pcConfigEpoch; // see pcConfigEpoch: discard this poll if the config changes mid-flight
       try {
@@ -263,57 +384,36 @@
         const playsData = await playsRes.json();
         if (myEpoch !== pcConfigEpoch) return;
         const plays = playsData.plays || [];
-        if (!plays.length) return;
 
-        // Newest play overall -- drives game-state fields (clock/score/down-distance/etc).
-        // Admin markers (period_end/timeout/game_over/kickoff) carry no play_state and
-        // often blank situational fields -- per live-stats Finding 15, walk forward to
-        // the newest play that actually HAS down/distance rather than blanking the display.
-        // EXCEPTION (2026-09-20): two terminal states override that hold-last-snap rule,
-        // because the stale snap there is wrong, not just old: Q2 period_end = HALFTIME,
-        // game_over = FINAL. Q1/Q3 period_end intentionally still hold the last snap
-        // (down & distance is still accurate across those transitions -- user decision).
-        const newestMeta = plays[0].metadata || {};
-        const isHalftime = newestMeta.play_type === 'period_end' && Number(newestMeta.quarter_name) === 2;
-        const isFinal = newestMeta.play_type === 'game_over';
-        const specialState = isHalftime ? 'HALFTIME' : (isFinal ? 'FINAL' : null);
-
-        let statePlay = plays.find(p => p.metadata && p.metadata.down) || plays[0];
-        const m = statePlay.metadata || {};
-
-        // Game-wide display strings, computed ONCE and painted onto every card.
-        const clockStr = specialState
-          ? specialState
-          : ((m.quarter_name != null && m.time_remaining_minutes != null)
-              ? `Q${m.quarter_name} ${m.time_remaining_minutes}:${String(m.time_remaining_seconds).padStart(2, '0')}`
-              : '--');
-
-        const awayPts = plays[0].metadata ? plays[0].metadata.away_points : undefined;
-        const homePts = plays[0].metadata ? plays[0].metadata.home_points : undefined;
-        const scoreStr = (awayPts != null && homePts != null) ? `${PC_AWAY_TEAM} ${awayPts} - ${PC_HOME_TEAM} ${homePts}` : '--';
-
-        const possStr = m.possession ? `${m.possession} ball` : '--';
-
-        // Down/distance/yard_line LOOKAHEAD (2026-09-21c fix): a single play record
-        // bundles a PRE-SNAP down/distance with a clock reading closer to when that
-        // play FINISHED and was posted -- the two fields are not the same moment in
-        // time. Displaying both straight from statePlay always shows down/distance one
-        // play "behind" what the clock implies (confirmed against real game data --
-        // see project Findings). Fix: catch down/distance UP to the clock by looking
-        // for the nearest down-bearing play NEWER than statePlay (lower array index,
-        // since plays[] is newest-first) and using THAT play's down/distance/yard_line
-        // instead, while clockStr/scoreStr/possStr stay sourced from statePlay/plays[0]
-        // exactly as before. Falls back to statePlay's own down/distance if statePlay is
-        // already the newest down-bearing play (nothing newer to catch up to).
-        const statePlayIdx = plays.indexOf(statePlay);
-        let situationSourceMeta = m;
-        for (let i = statePlayIdx - 1; i >= 0; i--) {
-          const cand = plays[i].metadata;
-          if (cand && cand.down) { situationSourceMeta = cand; break; }
+        // PREGAME PATH (2026-09-23 port): plays[] is EMPTY before kickoff. Previously this bailed with
+        // `return`, painting nothing (cards stayed at '--'). Now the pregame fetch/paint path runs
+        // instead. The extra await gets its OWN epoch guard: a config change mid-fetch must not let a
+        // stale pregame paint land over the new lineup's cards.
+        if (!plays.length) {
+          const pg = await fetchPregameInfo();
+          if (myEpoch !== pcConfigEpoch) return;
+          pregameInfo = pg;
+          Object.keys(pcCards).forEach(function(playerId) {
+            const card = pcCards[playerId];
+            card.clockEl.textContent = '';
+            card.possEl.style.display = 'none';
+            card.sitEl.style.display = 'none';
+            const oppTeam = card.team === PC_HOME_TEAM ? PC_AWAY_TEAM : PC_HOME_TEAM;
+            const vsOrAt = card.team === PC_HOME_TEAM ? 'VS' : '@';
+            card.scoreEl.textContent = pregameInfo
+              ? `${pregameInfo.dayTime} ${vsOrAt} ${oppTeam}`
+              : (PC_WEEK ? '--' : 'Set week to see kickoff time');
+            card.statsEl.textContent = formatStatLine(null, card.position);
+          });
+          return;
         }
-        const situationStr = (situationSourceMeta.down && situationSourceMeta.distance != null && situationSourceMeta.yard_line != null)
-          ? `${ordinal(situationSourceMeta.down)} & ${situationSourceMeta.distance} @ ${situationSourceMeta.yard_line_territory || ''} ${situationSourceMeta.yard_line}`.trim()
-          : '--';
+
+        // Game state derived by direct classification of the NEWEST play (see deriveCurrentState).
+        // Replaces the old statePlay/situationSourceMeta-only logic and the Number(quarter_name)===2
+        // halftime check (now the string compare ported verbatim from debug-cards.html).
+        const state = deriveCurrentState(plays);
+        const clockStr = state.clockStr;
+        const specialState = state.gamestate === 'HALFTIME' ? 'HALFTIME' : (state.gamestate === 'FINAL' ? 'FINAL' : null);
 
         // Cumulative stats: PRIMARY SOURCE = sportradar /stats/nfl/game/<id> row -- a true
         // whole-game cumulative total, unaffected by genius's limit=25 play-window bug
@@ -329,14 +429,50 @@
         Object.keys(pcCards).forEach(function(playerId) {
           const card = pcCards[playerId];
 
-          card.clockEl.textContent = clockStr;
+          // Clock: blank on FINAL (result line carries it), literal 'Halftime' on HALFTIME, live
+          // Q#/clock otherwise -- all already resolved into state.clockStr by deriveCurrentState.
+          card.clockEl.textContent = specialState === 'FINAL' ? '' : clockStr;
+
+          // Score line, per-card perspective, OWN team's score first (no team prefix -- the ordering
+          // conveys whose is whose). card.team decides which of away/home is "own". Feed mapping is
+          // already correct as-is: away_points = PC_AWAY_TEAM's score, home_points = PC_HOME_TEAM's.
+          const isHome = card.team === PC_HOME_TEAM;
+          const ownScore = isHome ? state.homePts : state.awayPts;
+          const oppScore = isHome ? state.awayPts : state.homePts;
+          const oppTeamAbbr = isHome ? PC_AWAY_TEAM : PC_HOME_TEAM;
+          const vsOrAt = isHome ? 'VS' : '@';
+          let scoreStr;
+          if (state.gamestate === 'FINAL' && ownScore != null && oppScore != null) {
+            const result = ownScore > oppScore ? 'W' : (ownScore < oppScore ? 'L' : 'T');
+            scoreStr = `${result} ${ownScore} - ${oppScore} ${vsOrAt} ${oppTeamAbbr}`;
+          } else if (ownScore != null && oppScore != null) {
+            scoreStr = `${ownScore} - ${oppScore}`;
+          } else {
+            scoreStr = '--';
+          }
           card.scoreEl.textContent = scoreStr;
 
-          // Possession + situation rows are HIDDEN (not blanked) in the special states,
-          // and restored as soon as play resumes.
-          card.possEl.style.display = specialState ? 'none' : '';
+          // Possession indicator (.pc-poss) REMOVED per port scope (superseded by the on-Defense /
+          // down-distance perspective line). Element kept in the DOM (minimal-diff), always hidden.
+          card.possEl.style.display = 'none';
+          card.possEl.textContent = '';
+
+          // Situation line, per-card perspective, priority: specialLabel > (endZone && own possession
+          // -> 'End Zone') > (opponent possession -> '${team} on Defense') > down/distance > '--'.
+          // Row HIDDEN (not blanked) in HALFTIME/FINAL, restored as soon as play resumes.
           card.sitEl.style.display = specialState ? 'none' : '';
-          card.possEl.textContent = possStr;
+          let situationStr;
+          if (state.specialLabel) {
+            situationStr = state.specialLabel;
+          } else if (state.endZone && state.possession === card.team) {
+            situationStr = 'End Zone';
+          } else if (state.possession && state.possession !== card.team) {
+            situationStr = `${card.team} on Defense`;
+          } else if (state.down && state.distance != null) {
+            situationStr = `${ordinal(state.down)} & ${state.distance} @ ${state.fieldTeam || ''} ${state.fieldYards != null ? state.fieldYards : ''}`.trim();
+          } else {
+            situationStr = '--';
+          }
           card.sitEl.textContent = situationStr;
 
           const playerStatsRow = (statsData || []).find(r => r.player_id === playerId);
@@ -378,18 +514,22 @@
     }
 
     function currentConfig() {
-      return { gameId: PC_GAME_ID, awayTeam: PC_AWAY_TEAM, homeTeam: PC_HOME_TEAM, players: PC_PLAYERS };
+      return { gameId: PC_GAME_ID, awayTeam: PC_AWAY_TEAM, homeTeam: PC_HOME_TEAM, week: PC_WEEK, players: PC_PLAYERS };
     }
 
-    // CONFIG shape (matches index.html PC_CONFIG): { gameId, awayTeam, homeTeam,
-    // players: [{ playerId, playerName, position }, ...] }. Every field and every player entry
+    // CONFIG shape (matches index.html PC_CONFIG): { gameId, awayTeam, homeTeam, week,
+    // players: [{ playerId, playerName, position, team }, ...] }. Every field and every player entry
     // must validate or the WHOLE config is rejected and the current lineup stays untouched.
+    // `team` is REQUIRED per player (per-card own-score-first + on-Defense depend on it; a player
+    // without one would silently mis-render, so reject instead). `week` is deliberately NOT in the
+    // required-field check: null is a LEGAL value (user hasn't set it yet on the sender page) and
+    // must not reject the whole config -- it is normalized below to a positive integer or null.
     function applyConfig(cfg) {
       const valid = cfg
         && ['gameId', 'awayTeam', 'homeTeam'].every(k => isNonEmpty(cfg[k]))
         && Array.isArray(cfg.players)
         && cfg.players.length > 0
-        && cfg.players.every(p => p && isNonEmpty(p.playerId) && isNonEmpty(p.playerName) && isNonEmpty(p.position));
+        && cfg.players.every(p => p && isNonEmpty(p.playerId) && isNonEmpty(p.playerName) && isNonEmpty(p.position) && isNonEmpty(p.team));
       if (!valid) {
         console.warn('CONFIG rejected (missing/empty field or bad players[]), keeping current config', cfg);
         return false;
@@ -397,7 +537,8 @@
       const newPlayers = cfg.players.map(p => ({
         playerId: String(p.playerId),
         playerName: String(p.playerName),
-        position: String(p.position)
+        position: String(p.position),
+        team: String(p.team)
       }));
       // Duplicate playerIds would collide as pcCards keys and silently drop a card -- reject.
       if (new Set(newPlayers.map(p => p.playerId)).size !== newPlayers.length) {
@@ -409,6 +550,8 @@
       PC_GAME_ID = String(cfg.gameId);
       PC_AWAY_TEAM = String(cfg.awayTeam);
       PC_HOME_TEAM = String(cfg.homeTeam);
+      const wk = parseInt(cfg.week, 10);
+      PC_WEEK = Number.isFinite(wk) && wk > 0 ? wk : null;
       PC_PLAYERS = newPlayers;
       pcHasConfig = true;
       pcConfigEpoch++; // invalidates any poll already in flight under the old config
