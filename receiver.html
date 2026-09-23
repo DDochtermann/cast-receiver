@@ -106,12 +106,12 @@
     let PC_HOME_TEAM = 'LAR';
     // 2026-09-23 port: PC_WEEK is user-set on the sender's orchestrator page and arrives via CONFIG
     // (null until set -- a null week is LEGAL, it only means the pregame /scores lookup is skipped).
-    // `team` per player (NYG/LAR real roster team, independent of home/away) drives own-score-first
+    // `team` per player (real roster team, independent of home/away) drives own-score-first
     // ordering + possession-vs-card comparison, kept in lockstep with index.html PC_CONFIG.
     let PC_WEEK = null;
     let PC_PLAYERS = [
       { playerId: '12481', playerName: 'Cam Skattebo', position: 'RB', team: 'NYG' },
-      { playerId: '8131', playerName: 'Isaiah Likely', position: 'TE', team: 'LAR' },
+      { playerId: '8131', playerName: 'Isaiah Likely', position: 'TE', team: 'NYG' },
       { playerId: '421', playerName: 'Matthew Stafford', position: 'QB', team: 'LAR' }
     ];
     const PC_POLL_MS = 3000;
