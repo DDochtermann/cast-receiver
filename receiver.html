@@ -213,6 +213,366 @@
     </div>
   </div>
 
+  <script>
+  // ---- S4.4d PLAYBACK DIAGNOSTICS (2026-10-02) -- OBSERVATION ONLY, no behavior change. ----
+  // Placed BEFORE the CAF script tag so window.fetch is wrapped before CAF/Shaka run. Every path is try/catch
+  // guarded; the fetch wrapper returns the ORIGINAL promise untouched (logging by side-effect only).
+  // Console lines are prefixed 'diag [Ns]' (N = seconds since this script ran). The last RING_MAX lines are also
+  // kept in memory: run __diag.dump() in the receiver DevTools Console to reprint them as one block.
+  (function () {
+    try {
+      var T0 = performance.now();
+      var RING_MAX = 1500, RECENT_MAX = 60, SLOW_SEG_MS = 2000, HEARTBEAT_MS = 30000, LAG_WARN_MS = 750;
+      var ring = [], recent = [], inflight = {}, segSeen = {}, segOrder = [], segLen = {};
+      var S = { stalls: 0, stallMs: 0, stallMsMax: 0, segReq: 0, segDone: 0, segSlow: 0, segDur: 0, segDurMax: 0,
+                aborted: 0, failed: 0, dup: 0, plReq: 0, plGapMax: 0, lagMax: 0, lagWin: 0, lagCount: 0,
+                longTasks: 0, longTaskMax: 0, errors: 0 };
+      var video = null, pm = null, ep = null, playedOnce = false, reqId = 0;
+      var lastPlAt = null, plPrevSeq = null, plSame = 0, lastPl = null, cafTries = 0, cfgLogged = false;
+
+      function ts() { return ((performance.now() - T0) / 1000).toFixed(1); }
+      function r1(n) { return (typeof n === 'number' && isFinite(n)) ? Math.round(n * 10) / 10 : n; }
+      function J(o) { try { return JSON.stringify(o); } catch (e) { return String(o); } }
+      function emit(level, msg) {
+        var line = 'diag [' + ts() + 's] ' + msg;
+        ring.push(line);
+        if (ring.length > RING_MAX) ring.shift();
+        try { console[level](line); } catch (e) {}
+      }
+
+      // ---- D2/D3: snapshot of playback position / buffer / live-edge distance ----
+      function liveRange() {
+        try {
+          if (pm && typeof pm.getLiveSeekableRange === 'function') {
+            var r = pm.getLiveSeekableRange();
+            if (r && isFinite(r.end)) return { start: isFinite(r.start) ? r.start : 0, end: r.end };
+          }
+        } catch (e) {}
+        try {
+          if (video && video.seekable && video.seekable.length) {
+            return { start: video.seekable.start(0), end: video.seekable.end(video.seekable.length - 1) };
+          }
+        } catch (e) {}
+        return null;
+      }
+      function snap() {
+        var o = {};
+        try {
+          var v = video;
+          if (!v) return o;
+          var ct = v.currentTime;
+          o.ct = r1(ct); o.rs = v.readyState; o.paused = v.paused;
+          var ahead = 0, rngs = [], b = v.buffered;
+          for (var i = 0; i < b.length; i++) {
+            var s = b.start(i), e = b.end(i);
+            if (i < 4) rngs.push(r1(s) + '-' + r1(e));
+            if (ct >= s - 0.1 && ct <= e + 0.1) ahead = e - ct;
+          }
+          o.ahead = r1(ahead);
+          o.buf = rngs.join(',') + (b.length > 4 ? ',+' + (b.length - 4) : '');
+          var live = liveRange();
+          if (live) { o.live = r1(live.start) + '-' + r1(live.end); o.behind = r1(live.end - ct); }
+        } catch (e) {}
+        return o;
+      }
+      function reqState() {
+        var out = [], now = performance.now();
+        for (var id in inflight) { var r = inflight[id]; out.push(r.k + ' ' + Math.round(now - r.t) + 'ms'); }
+        return 'inflight=[' + out.join(', ') + ']';
+      }
+      function dumpRecent() {
+        var tail = recent.slice(-8).map(function (r) {
+          return '[' + r.at + 's ' + r.k + ' ' + (r.status === undefined ? '...' : r.status)
+            + (r.hdr !== undefined ? ' hdr ' + r.hdr : '') + (r.dur !== undefined ? ' dur ' + r.dur : '')
+            + (r.len ? ' len ' + r.len : '') + ']';
+        });
+        emit('log', 'recent requests (oldest->newest): ' + tail.join(' ') + ' | ' + reqState());
+      }
+
+      // ---- D2: stall episodes (every one, however short) ----
+      function epStart(why) {
+        if (ep) return;
+        S.stalls++;
+        ep = { t0: performance.now(), n: S.stalls, seeked: false, samples: 0, timer: null };
+        emit('warn', 'STALL #' + ep.n + ' start (' + why + ') ' + J(snap()));
+        dumpRecent();
+        ep.timer = setInterval(function () {
+          try {
+            if (!ep || ++ep.samples > 40) return;
+            emit('log', 'stall #' + ep.n + ' +' + r1((performance.now() - ep.t0) / 1000) + 's ' + J(snap()) + ' ' + reqState());
+          } catch (e) {}
+        }, 1000);
+      }
+      function epEnd(why) {
+        if (!ep) return;
+        var ms = performance.now() - ep.t0;
+        clearInterval(ep.timer);
+        S.stallMs += ms;
+        if (ms > S.stallMsMax) S.stallMsMax = ms;
+        emit('warn', 'STALL #' + ep.n + ' end (' + why + ') ' + Math.round(ms) + ' ms' + (ep.seeked ? ' [seek during]' : '') + ' ' + J(snap()));
+        ep = null;
+      }
+      function onVideoEvent(type) {
+        try {
+          if (type === 'playing') { playedOnce = true; if (ep) epEnd('playing'); else emit('log', 'playing ' + J(snap())); return; }
+          if (type === 'waiting') {
+            if (!playedOnce) { emit('log', 'waiting (startup) ' + J(snap())); return; }
+            epStart('video waiting'); return;
+          }
+          if (type === 'seeking') { if (ep) ep.seeked = true; emit('log', 'seeking ' + J(snap())); return; }
+          if (type === 'error') {
+            S.errors++;
+            var er = video && video.error;
+            emit('error', 'VIDEO ERROR ' + J({ code: er && er.code, message: er && er.message }));
+            return;
+          }
+          if (type === 'emptied') { emit('warn', 'video emptied (media reset/reload) ' + J(snap())); return; }
+          emit('log', type + ' ' + J(snap())); // stalled, pause, seeked, canplay
+        } catch (e) {}
+      }
+      function attachVideo(v) {
+        video = v;
+        ['waiting', 'playing', 'stalled', 'pause', 'seeking', 'seeked', 'error', 'emptied', 'canplay'].forEach(function (name) {
+          v.addEventListener(name, function () { onVideoEvent(name); });
+        });
+        emit('log', 'video element attached ' + J(snap()));
+      }
+      function findVideo(root, depth) {
+        if (!root || depth > 6) return null;
+        var v = root.querySelector ? root.querySelector('video') : null;
+        if (v) return v;
+        var all = root.querySelectorAll ? root.querySelectorAll('*') : [];
+        for (var i = 0; i < all.length; i++) {
+          var sr = all[i].shadowRoot;
+          if (sr) { var f = findVideo(sr, depth + 1); if (f) return f; }
+        }
+        return null;
+      }
+
+      // ---- D1: CAF hooks + config/environment lines ----
+      function logEnv(tag) {
+        try {
+          var info = { ua: navigator.userAgent };
+          try { if (window.shaka && shaka.Player) info.shaka = shaka.Player.version; } catch (e) {}
+          try { if (navigator.connection) info.net = { type: navigator.connection.effectiveType, downlink: navigator.connection.downlink, rtt: navigator.connection.rtt }; } catch (e) {}
+          try { if (performance.memory) info.heapMB = Math.round(performance.memory.usedJSHeapSize / 1048576); } catch (e) {}
+          emit('log', 'env ' + tag + ' ' + J(info));
+          if (pm && typeof pm.getPlaybackConfig === 'function') {
+            emit('log', 'playbackConfig as applied ' + String(J(pm.getPlaybackConfig())).slice(0, 900));
+          }
+        } catch (e) {}
+      }
+      function hookCaf() {
+        try {
+          if (pm) return;
+          if (!(window.cast && cast.framework && cast.framework.CastReceiverContext)) return;
+          var p = cast.framework.CastReceiverContext.getInstance().getPlayerManager();
+          var ET = cast.framework.events.EventType;
+          if (ET.BUFFERING) p.addEventListener(ET.BUFFERING, function (e) { emit('log', 'CAF BUFFERING ' + (e && e.isBuffering) + ' ' + J(snap())); });
+          if (ET.ERROR) p.addEventListener(ET.ERROR, function (e) { S.errors++; emit('error', 'CAF ERROR ' + J({ code: e && e.detailedErrorCode, reason: e && e.reason })); });
+          if (ET.PLAYER_LOAD_COMPLETE) p.addEventListener(ET.PLAYER_LOAD_COMPLETE, function () { emit('log', 'CAF PLAYER_LOAD_COMPLETE ' + J(snap())); });
+          pm = p;
+          emit('log', 'CAF player manager hooked');
+          setTimeout(function () { logEnv('t+2s'); }, 2000);
+          setTimeout(function () { logEnv('t+20s'); }, 20000);
+        } catch (e) { emit('warn', 'CAF hook failed: ' + e); }
+      }
+
+      // ---- D4: request tracking (fetch wrapper = pass-through) ----
+      function classify(url) {
+        try {
+          var u = new URL(url, location.href);
+          if (u.hostname === 'api.sleeper.app' || /gstatic\.com$/.test(u.hostname)) return null;
+          var p = u.pathname;
+          if (/\.m3u8$/i.test(p)) return 'pl';
+          if (/\.(ts|m4s|mp4|aac|m4a|m4v|image|webp|cmfv|cmfa)$/i.test(p) || /\/m\/[^\/]+$/.test(p)) return 'seg';
+        } catch (e) {}
+        return null;
+      }
+      function shortUrl(url) {
+        try { var u = new URL(url, location.href); return u.hostname + '/..' + u.pathname.slice(-24); } catch (e) { return String(url).slice(-32); }
+      }
+      function beginReq(input, init) {
+        var url = typeof input === 'string' ? input : (input && input.url) ? input.url : String(input);
+        var k = classify(url);
+        if (!k) return null;
+        var now = performance.now();
+        var rec = { id: ++reqId, k: k, url: url, s: shortUrl(url), t: now, at: ts() };
+        inflight[rec.id] = rec;
+        recent.push(rec);
+        if (recent.length > RECENT_MAX) recent.shift();
+        if (k === 'seg') {
+          S.segReq++;
+          var prev = segSeen[url];
+          if (prev) {
+            prev.count++; S.dup++;
+            emit('warn', 'DUP segment fetch #' + prev.count + ' (first ' + r1((now - prev.t) / 1000) + 's ago) ' + rec.s);
+          } else {
+            segSeen[url] = { t: now, count: 1 };
+            segOrder.push(url);
+            if (segOrder.length > 120) { var old = segOrder.shift(); delete segSeen[old]; delete segLen[old]; }
+          }
+        } else {
+          if (lastPlAt !== null) {
+            var gap = now - lastPlAt;
+            if (gap > S.plGapMax) S.plGapMax = gap;
+            if (gap > 6000) emit('warn', 'playlist poll gap ' + r1(gap / 1000) + ' s');
+          }
+          lastPlAt = now;
+        }
+        return rec;
+      }
+      function parsePlaylist(rec, txt) {
+        var m = /#EXT-X-MEDIA-SEQUENCE:(\d+)/.exec(txt);
+        var seq = m ? +m[1] : null;
+        var n = (txt.match(/#EXTINF/g) || []).length;
+        var td = /#EXT-X-TARGETDURATION:(\d+)/.exec(txt);
+        var flags = (/#EXT-X-ENDLIST/.test(txt) ? 'ENDLIST ' : '') + (/#EXT-X-DISCONTINUITY/.test(txt) ? 'DISC ' : '');
+        S.plReq++;
+        lastPl = { seq: seq, n: n, td: td ? +td[1] : null };
+        var note = null;
+        if (seq !== null && plPrevSeq !== null) {
+          if (seq === plPrevSeq) { plSame++; if (plSame === 5) note = 'seq unchanged for 5 polls (origin/playlist stalled?)'; }
+          else {
+            plSame = 0;
+            if (seq < plPrevSeq) note = 'seq went BACKWARDS from ' + plPrevSeq;
+            else if (seq - plPrevSeq > n) note = 'seq JUMPED +' + (seq - plPrevSeq) + ' (> window ' + n + ', segments missed)';
+          }
+        }
+        if (seq !== null) plPrevSeq = seq;
+        if (note || flags || ep || plPrevSeq === seq && S.plReq === 1 || rec.hdr > 1000) {
+          emit(note ? 'warn' : 'log', 'playlist seq ' + seq + ' segs ' + n + ' target ' + (td ? td[1] : '?') + ' ' + flags + 'hdr ' + rec.hdr + ' ms ' + (note || ''));
+        }
+      }
+      function endReq(rec, resp) {
+        delete inflight[rec.id];
+        rec.hdr = Math.round(performance.now() - rec.t);
+        rec.status = resp.status;
+        var len = null;
+        try { len = resp.headers.get('content-length'); } catch (e) {}
+        if (len) { rec.len = +len; if (rec.k === 'seg') segLen[rec.url] = +len; }
+        if (!resp.ok) { S.failed++; emit('warn', 'HTTP ' + resp.status + ' ' + rec.k + ' ' + rec.s + ' hdr ' + rec.hdr + ' ms'); }
+        else if (rec.k === 'seg' && (ep || rec.hdr > 1500)) emit('log', 'seg ' + resp.status + ' hdr ' + rec.hdr + ' ms len ' + (rec.len || '?') + ' ' + rec.s);
+        if (rec.k === 'pl' && resp.ok) {
+          resp.clone().text().then(function (txt) { try { parsePlaylist(rec, txt); } catch (e) {} }, function () {});
+        }
+      }
+      function failReq(rec, err) {
+        delete inflight[rec.id];
+        var ms = Math.round(performance.now() - rec.t);
+        rec.status = 'ERR'; rec.hdr = ms;
+        if (err && err.name === 'AbortError') {
+          S.aborted++;
+          emit('warn', 'ABORTED ' + rec.k + ' after ' + ms + ' ms (caller-initiated abort: player timeout/retry or teardown) ' + rec.s);
+        } else {
+          S.failed++;
+          emit('warn', 'FAILED ' + rec.k + ' after ' + ms + ' ms: ' + (err && (err.name + ': ' + err.message)) + ' ' + rec.s);
+        }
+      }
+      var origFetch = window.fetch;
+      if (typeof origFetch === 'function') {
+        window.fetch = function (input, init) {
+          var rec = null;
+          try { rec = beginReq(input, init); } catch (e) { rec = null; }
+          var p;
+          try { p = origFetch.apply(this, arguments); }
+          catch (e) { if (rec) delete inflight[rec.id]; throw e; }
+          if (rec) {
+            try { p.then(function (resp) { try { endReq(rec, resp); } catch (e) {} }, function (err) { try { failReq(rec, err); } catch (e) {} }); } catch (e) {}
+          }
+          return p;
+        };
+        emit('log', 'fetch wrapper installed (pass-through)');
+      } else {
+        emit('warn', 'window.fetch missing; request tracking disabled');
+      }
+
+      // passive full-download timing (resource timing entries; cross-origin entries still carry duration)
+      try {
+        new PerformanceObserver(function (list) {
+          try {
+            list.getEntries().forEach(function (e) {
+              var k = classify(e.name);
+              if (k !== 'seg') return;
+              var dur = Math.round(e.duration);
+              S.segDone++; S.segDur += dur;
+              if (dur > S.segDurMax) S.segDurMax = dur;
+              for (var i = recent.length - 1; i >= 0; i--) {
+                if (recent[i].url === e.name && recent[i].dur === undefined) { recent[i].dur = dur; break; }
+              }
+              if (dur > SLOW_SEG_MS) {
+                S.segSlow++;
+                var len = segLen[e.name];
+                emit('warn', 'SLOW segment ' + dur + ' ms' + (len ? ' len ' + len + ' (' + r1(len * 8 / dur / 1000) + ' Mbps)' : '') + ' ' + shortUrl(e.name) + ' ' + reqState());
+              }
+            });
+          } catch (er) {}
+        }).observe({ type: 'resource', buffered: true });
+      } catch (e) { emit('warn', 'PerformanceObserver(resource) unavailable: ' + e); }
+      try {
+        new PerformanceObserver(function (list) {
+          list.getEntries().forEach(function (e) {
+            S.longTasks++;
+            if (e.duration > S.longTaskMax) S.longTaskMax = e.duration;
+            if (e.duration >= 1000) emit('warn', 'LONG TASK ' + Math.round(e.duration) + ' ms');
+          });
+        }).observe({ entryTypes: ['longtask'] });
+      } catch (e) {}
+
+      // main-thread lag sampler (page JS jank, e.g. overlay polling/parsing, can look like a player stall)
+      var lagLast = performance.now();
+      setInterval(function () {
+        var now = performance.now(), lag = now - lagLast - 500;
+        lagLast = now;
+        if (lag > S.lagMax) S.lagMax = lag;
+        if (lag > S.lagWin) S.lagWin = lag;
+        if (lag > LAG_WARN_MS) { S.lagCount++; emit('warn', 'MAIN-THREAD LAG ' + Math.round(lag) + ' ms'); }
+      }, 500);
+
+      // 1 s housekeeping: find the <video> (inside CAF shadow DOM), hook CAF once available
+      setInterval(function () {
+        try {
+          if (!pm && cafTries < 120) { cafTries++; hookCaf(); if (cafTries === 120 && !pm) emit('warn', 'CAF player manager never became available'); }
+          if (!video || !video.isConnected) { var v = findVideo(document, 0); if (v) attachVideo(v); }
+        } catch (e) {}
+      }, 1000);
+
+      // D5: heartbeat summary
+      setInterval(function () {
+        try {
+          var q = null;
+          try { q = video && video.getVideoPlaybackQuality ? video.getVideoPlaybackQuality() : null; } catch (e) {}
+          var hb = {
+            stalls: S.stalls, stallS: r1(S.stallMs / 1000), stallMaxS: r1(S.stallMsMax / 1000),
+            seg: S.segReq, slow: S.segSlow, avgMs: S.segDone ? Math.round(S.segDur / S.segDone) : null, maxMs: S.segDurMax,
+            dup: S.dup, abort: S.aborted, fail: S.failed, err: S.errors,
+            pl: S.plReq, plSeq: lastPl && lastPl.seq, plN: lastPl && lastPl.n, plGapMaxS: r1(S.plGapMax / 1000),
+            lagMaxMs: Math.round(S.lagWin), lagN: S.lagCount, longTasks: S.longTasks, longMaxMs: Math.round(S.longTaskMax),
+            dropped: q ? q.droppedVideoFrames + '/' + q.totalVideoFrames : null,
+            heapMB: performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null,
+            matchup: !!(document.body && document.body.classList.contains('matchup-mode')),
+            stalled: !!ep
+          };
+          S.lagWin = 0;
+          var s = snap();
+          for (var key in s) hb[key] = s[key];
+          emit('log', 'HEARTBEAT ' + J(hb));
+        } catch (e) {}
+      }, HEARTBEAT_MS);
+
+      window.__diag = {
+        dump: function () { console.log(ring.join('\n')); return ring.length; },
+        ring: ring, recent: recent, stats: S, snap: snap
+      };
+      emit('log', 'diagnostics armed (observation only). ua=' + navigator.userAgent);
+      try {
+        if (window.PerformanceObserver && PerformanceObserver.supportedEntryTypes) emit('log', 'perf entry types: ' + PerformanceObserver.supportedEntryTypes.join(','));
+      } catch (e) {}
+    } catch (err) {
+      try { console.error('diag setup failed; playback unaffected', err); } catch (e2) {}
+    }
+  })();
+  </script>
   <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
   <script>
   // ---- S4.1 MATCHUP MODE (2026-10-01): 18-card live matchup screen, additive to the 3-card mode below. ----
@@ -1581,6 +1941,7 @@ function renderCards(cfg, games) {
         else stallClear(true);
       });
       stallPlayerMgr.addEventListener(cast.framework.events.EventType.PLAYING, () => stallClear(true));
+      console.log('diag: stall watchdog armed (STALL_MS=' + STALL_MS + ', max ' + STALL_MAX_RECOVERIES + ' recoveries per ' + STALL_WINDOW_MS + ' ms)');
     } catch (err) {
       console.error('stall watchdog setup failed; playback unaffected', err);
     }
