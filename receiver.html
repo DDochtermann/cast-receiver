@@ -215,6 +215,9 @@
 
   <script>
   // ---- S4.4d PLAYBACK DIAGNOSTICS (2026-10-02) -- OBSERVATION ONLY, no behavior change. ----
+  // S4.4e (2026-10-02): console.log only (no per-line stack capture); Sleeper API timing (hdr / body read / JSON.parse) via a
+  // semantically-identical Response.prototype.json shim applied ONLY to Sleeper responses; long-task attribution; and an
+  // opt-in A/B switch window.__diag.pollOff (default OFF) that disables the receiver's own 3 s Sleeper poll.
   // Placed BEFORE the CAF script tag so window.fetch is wrapped before CAF/Shaka run. Every path is try/catch
   // guarded; the fetch wrapper returns the ORIGINAL promise untouched (logging by side-effect only).
   // Console lines are prefixed 'diag [Ns]' (N = seconds since this script ran). The last RING_MAX lines are also
@@ -224,9 +227,15 @@
       var T0 = performance.now();
       var RING_MAX = 1500, RECENT_MAX = 60, SLOW_SEG_MS = 2000, HEARTBEAT_MS = 30000, LAG_WARN_MS = 750;
       var ring = [], recent = [], inflight = {}, segSeen = {}, segOrder = [], segLen = {};
+      var slRecent = [], marks = [], pollLogged = false, pollOffInit = false;
+      var sbList = [], lastAppendAt = 0, shakaPlayer = null, shakaEv = 0;
+      var M = { apps: 0, done: 0, bytes: 0, aSum: 0, aMax: 0, aWin: 0, sMax: 0, sWin: 0, errs: 0, removes: 0, sbs: 0 };
+      try { pollOffInit = localStorage.getItem('diag.pollOff') === '1'; } catch (e) {}
       var S = { stalls: 0, stallMs: 0, stallMsMax: 0, segReq: 0, segDone: 0, segSlow: 0, segDur: 0, segDurMax: 0,
                 aborted: 0, failed: 0, dup: 0, plReq: 0, plGapMax: 0, lagMax: 0, lagWin: 0, lagCount: 0,
-                longTasks: 0, longTaskMax: 0, errors: 0 };
+                longTasks: 0, longTaskMax: 0, long200: 0, errors: 0,
+                slN: 0, slJson: 0, slHdrMax: 0, slReadMax: 0, slReadSum: 0, slReadWin: 0, slParseMax: 0, slParseSum: 0,
+                slParseWin: 0, slBytes: 0, slOverlapMax: 0 };
       var video = null, pm = null, ep = null, playedOnce = false, reqId = 0;
       var lastPlAt = null, plPrevSeq = null, plSame = 0, lastPl = null, cafTries = 0, cfgLogged = false;
 
@@ -234,11 +243,13 @@
       function r1(n) { return (typeof n === 'number' && isFinite(n)) ? Math.round(n * 10) / 10 : n; }
       function J(o) { try { return JSON.stringify(o); } catch (e) { return String(o); } }
       function emit(level, msg) {
-        var line = 'diag [' + ts() + 's] ' + msg;
+        // S4.4e: always console.log (console.warn/error make DevTools capture an async stack per line); severity stays as a text marker.
+        var line = 'diag [' + ts() + 's] ' + (level === 'warn' ? '(warn) ' : (level === 'error' ? '(ERROR) ' : '')) + msg;
         ring.push(line);
         if (ring.length > RING_MAX) ring.shift();
-        try { console[level](line); } catch (e) {}
+        try { console.log(line); } catch (e) {}
       }
+      function mark(s) { marks.push({ t: performance.now(), s: s }); if (marks.length > 150) marks.shift(); }
 
       // ---- D2/D3: snapshot of playback position / buffer / live-edge distance ----
       function liveRange() {
@@ -287,6 +298,12 @@
             + (r.len ? ' len ' + r.len : '') + ']';
         });
         emit('log', 'recent requests (oldest->newest): ' + tail.join(' ') + ' | ' + reqState());
+        var sl = slRecent.slice(-6).map(function (r) {
+          return '[' + r.at + 's ' + r.what + ' hdr ' + (r.hdr === undefined ? '...' : r.hdr) + (r.read !== undefined ? ' read ' + r.read + ' parse ' + r.parse : '') + (r.len ? ' len ' + r.len : '') + ']';
+        });
+        if (sl.length) emit('log', 'recent sleeper (oldest->newest): ' + sl.join(' '));
+        try { emit('log', 'mse state ' + J(mseState())); } catch (e) {}
+        shakaStall();
       }
 
       // ---- D2: stall episodes (every one, however short) ----
@@ -356,6 +373,8 @@
           try { if (window.shaka && shaka.Player) info.shaka = shaka.Player.version; } catch (e) {}
           try { if (navigator.connection) info.net = { type: navigator.connection.effectiveType, downlink: navigator.connection.downlink, rtt: navigator.connection.rtt }; } catch (e) {}
           try { if (performance.memory) info.heapMB = Math.round(performance.memory.usedJSHeapSize / 1048576); } catch (e) {}
+          try { info.muxjs = typeof window.muxjs; } catch (e) {}
+          try { if (window.MediaSource) info.mseSupport = { mp2t: MediaSource.isTypeSupported('video/mp2t; codecs="avc1.64001f,mp4a.40.2"'), mp4: MediaSource.isTypeSupported('video/mp4; codecs="avc1.64001f,mp4a.40.2"') }; } catch (e) {}
           emit('log', 'env ' + tag + ' ' + J(info));
           if (pm && typeof pm.getPlaybackConfig === 'function') {
             emit('log', 'playbackConfig as applied ' + String(J(pm.getPlaybackConfig())).slice(0, 900));
@@ -382,7 +401,8 @@
       function classify(url) {
         try {
           var u = new URL(url, location.href);
-          if (u.hostname === 'api.sleeper.app' || /gstatic\.com$/.test(u.hostname)) return null;
+          if (u.hostname === 'api.sleeper.app') return 'sl';
+          if (/gstatic\.com$/.test(u.hostname)) return null;
           var p = u.pathname;
           if (/\.m3u8$/i.test(p)) return 'pl';
           if (/\.(ts|m4s|mp4|aac|m4a|m4v|image|webp|cmfv|cmfa)$/i.test(p) || /\/m\/[^\/]+$/.test(p)) return 'seg';
@@ -392,6 +412,40 @@
       function shortUrl(url) {
         try { var u = new URL(url, location.href); return u.hostname + '/..' + u.pathname.slice(-24); } catch (e) { return String(url).slice(-32); }
       }
+      // ---- S4.4e: Sleeper API request timing (the receiver's own 3 s poll + matchup poll) ----
+      function slWhat(url) {
+        try {
+          var p = new URL(url, location.href).pathname;
+          if (/\/plays\//.test(p)) return 'plays';
+          if (/\/stats\//.test(p)) return 'stats';
+          if (/\/scores\//.test(p)) return 'scores';
+          if (/\/projections\//.test(p)) return 'proj';
+          if (/\/league\//.test(p)) return 'league';
+        } catch (e) {}
+        return 'api';
+      }
+      function beginSl(rec) {
+        rec.what = slWhat(rec.url);
+        var n = 0;
+        for (var id in inflight) { if (inflight[id].k === 'sl') n++; }
+        rec.sl = n; // Sleeper requests in flight including this one (a normal poll = 2)
+        if (n > S.slOverlapMax) S.slOverlapMax = n;
+        slRecent.push(rec);
+        if (slRecent.length > 12) slRecent.shift();
+        return rec;
+      }
+      function slDone(rec, t0, t1, t2, chars, err) {
+        var read = Math.round(t1 - t0), parse = Math.round(t2 - t1);
+        rec.read = read; rec.parse = parse;
+        S.slJson++; S.slParseSum += parse; S.slReadSum += read;
+        if (parse > S.slParseMax) S.slParseMax = parse;
+        if (read > S.slReadMax) S.slReadMax = read;
+        if (parse > S.slParseWin) S.slParseWin = parse;
+        if (read > S.slReadWin) S.slReadWin = read;
+        mark('sleeper ' + rec.what + ' read ' + read + ' parse ' + parse + 'ms');
+        var slow = (rec.hdr + read) > 1000 || parse > 100 || !!err;
+        if (slow || ep) emit(slow ? 'warn' : 'log', 'sleeper ' + rec.what + ' hdr ' + rec.hdr + ' read ' + read + ' parse ' + parse + ' ms, ' + chars + ' chars, inflight@start ' + rec.sl + (err ? ' ' + err : ''));
+      }
       function beginReq(input, init) {
         var url = typeof input === 'string' ? input : (input && input.url) ? input.url : String(input);
         var k = classify(url);
@@ -399,6 +453,7 @@
         var now = performance.now();
         var rec = { id: ++reqId, k: k, url: url, s: shortUrl(url), t: now, at: ts() };
         inflight[rec.id] = rec;
+        if (k === 'sl') return beginSl(rec);
         recent.push(rec);
         if (recent.length > RECENT_MAX) recent.shift();
         if (k === 'seg') {
@@ -430,6 +485,7 @@
         var flags = (/#EXT-X-ENDLIST/.test(txt) ? 'ENDLIST ' : '') + (/#EXT-X-DISCONTINUITY/.test(txt) ? 'DISC ' : '');
         S.plReq++;
         lastPl = { seq: seq, n: n, td: td ? +td[1] : null };
+        mark('playlist seq ' + seq + ' segs ' + n);
         var note = null;
         if (seq !== null && plPrevSeq !== null) {
           if (seq === plPrevSeq) { plSame++; if (plSame === 5) note = 'seq unchanged for 5 polls (origin/playlist stalled?)'; }
@@ -451,6 +507,12 @@
         var len = null;
         try { len = resp.headers.get('content-length'); } catch (e) {}
         if (len) { rec.len = +len; if (rec.k === 'seg') segLen[rec.url] = +len; }
+        if (rec.k === 'sl') {
+          S.slN++;
+          if (rec.hdr > S.slHdrMax) S.slHdrMax = rec.hdr;
+          if (len) S.slBytes += +len;
+          try { resp.__dslRec = rec; } catch (e) {} // lets the json() shim below time this response's body read + parse
+        }
         if (!resp.ok) { S.failed++; emit('warn', 'HTTP ' + resp.status + ' ' + rec.k + ' ' + rec.s + ' hdr ' + rec.hdr + ' ms'); }
         else if (rec.k === 'seg' && (ep || rec.hdr > 1500)) emit('log', 'seg ' + resp.status + ' hdr ' + rec.hdr + ' ms len ' + (rec.len || '?') + ' ' + rec.s);
         if (rec.k === 'pl' && resp.ok) {
@@ -487,6 +549,179 @@
         emit('warn', 'window.fetch missing; request tracking disabled');
       }
 
+      // ---- S4.4f: MSE append timing + Shaka internals (the choke happens BETWEEN download and playback) ----
+      function mimeShort(m) { return String(m || '').slice(0, 70); }
+      function sigOf(data) {
+        try {
+          var u = data.buffer ? new Uint8Array(data.buffer, data.byteOffset || 0, Math.min(8, data.byteLength)) : new Uint8Array(data, 0, Math.min(8, data.byteLength));
+          if (u[0] === 0x47) return 'ts';
+          var s = String.fromCharCode(u[4], u[5], u[6], u[7]);
+          if (/^(ftyp|styp|moof|moov|sidx)$/.test(s)) return 'mp4:' + s;
+          return 'hex:' + Array.prototype.map.call(u, function (x) { return (x < 16 ? '0' : '') + x.toString(16); }).join('');
+        } catch (e) { return '?'; }
+      }
+      function trackSb(sb, mime) {
+        var d = { id: ++M.sbs, mime: mime, type: String(mime || '').split(';')[0], pend: null, n: 0 };
+        sb.__dm = d;
+        sbList.push(sb);
+        if (sbList.length > 8) sbList.shift();
+        emit('log', 'MSE addSourceBuffer #' + d.id + ' ' + mimeShort(mime));
+        sb.addEventListener('updateend', function () {
+          try {
+            var p = d.pend;
+            if (!p) return;
+            d.pend = null;
+            var a = performance.now() - p.t0;
+            M.done++; M.aSum += a;
+            if (a > M.aMax) M.aMax = a;
+            if (a > M.aWin) M.aWin = a;
+            mark('append ' + d.type + ' ' + Math.round(a) + 'ms');
+            var slow = a > 500 || p.sync > 50;
+            if (slow || ep || d.n === 1) emit(slow ? 'warn' : 'log', 'append #' + d.id + ' ' + d.type + ' ' + p.bytes + ' B sig ' + p.sig + ' sync ' + Math.round(p.sync) + ' ms async ' + Math.round(a) + ' ms' + (slow || ep ? ' ' + J(snap()) : ''));
+          } catch (e) {}
+        });
+        sb.addEventListener('error', function () { M.errs++; emit('error', 'MSE SourceBuffer #' + d.id + ' error event'); });
+      }
+      function mseState() {
+        var now = performance.now(), o = { sbs: [], lastAppendAgoS: lastAppendAt ? r1((now - lastAppendAt) / 1000) : null };
+        sbList.forEach(function (sb) {
+          try {
+            var d = sb.__dm || {}, b = sb.buffered, rg = [];
+            for (var i = 0; i < b.length && i < 3; i++) rg.push(r1(b.start(i)) + '-' + r1(b.end(i)));
+            o.sbs.push({ id: d.id, t: d.type, upd: sb.updating, pendMs: d.pend ? Math.round(now - d.pend.t0) : null, buf: rg.join(',') });
+          } catch (e) { o.sbs.push({ id: sb.__dm && sb.__dm.id, gone: true }); }
+        });
+        return o;
+      }
+      function mseSummary() {
+        var now = performance.now(), upd = null;
+        sbList.forEach(function (sb) {
+          try { var d = sb.__dm; if (d && d.pend && sb.updating) { var ms = Math.round(now - d.pend.t0); if (upd === null || ms > upd) upd = ms; } } catch (e) {}
+        });
+        return { sb: sbList.length, apps: M.apps, MB: r1(M.bytes / 1048576), aAvg: M.done ? Math.round(M.aSum / M.done) : null, aMaxWin: Math.round(M.aWin), aMax: Math.round(M.aMax),
+                 sMaxWin: Math.round(M.sWin), errs: M.errs, rm: M.removes, idleS: lastAppendAt ? r1((now - lastAppendAt) / 1000) : null, updMs: upd };
+      }
+      try {
+        var MSc = window.MediaSource, SBc = window.SourceBuffer;
+        if (MSc && MSc.prototype && MSc.prototype.addSourceBuffer && SBc && SBc.prototype && SBc.prototype.appendBuffer) {
+          var origAdd = MSc.prototype.addSourceBuffer, origApp = SBc.prototype.appendBuffer, origRem = SBc.prototype.remove;
+          MSc.prototype.addSourceBuffer = function (mime) {
+            var sb = origAdd.apply(this, arguments);
+            try { trackSb(sb, mime); } catch (e) {}
+            return sb;
+          };
+          SBc.prototype.appendBuffer = function (data) {
+            var t0 = performance.now(), r;
+            try { r = origApp.apply(this, arguments); }
+            catch (ae) { try { M.errs++; emit('warn', 'appendBuffer THREW ' + (ae && ae.name) + ' ' + J(snap())); } catch (e) {} throw ae; }
+            try {
+              var d = this.__dm;
+              if (d) {
+                var sync = performance.now() - t0, bytes = data && data.byteLength;
+                d.n++; M.apps++; M.bytes += bytes || 0; lastAppendAt = t0;
+                if (sync > M.sMax) M.sMax = sync;
+                if (sync > M.sWin) M.sWin = sync;
+                d.pend = { t0: t0, sync: sync, bytes: bytes, sig: sigOf(data) };
+              }
+            } catch (e) {}
+            return r;
+          };
+          if (typeof origRem === 'function') {
+            SBc.prototype.remove = function (a, b) {
+              try { M.removes++; if (ep) emit('log', 'MSE remove ' + r1(a) + '-' + r1(b)); } catch (e) {}
+              return origRem.apply(this, arguments);
+            };
+          }
+          emit('log', 'MSE addSourceBuffer/appendBuffer/remove hooks installed');
+        } else { emit('warn', 'MSE hooks unavailable'); }
+      } catch (e) { emit('warn', 'MSE hook install failed: ' + e); }
+
+      // Shaka internals: the player instance is not exposed by CAF, so capture it from calls on the prototype.
+      function sstats() {
+        try {
+          if (!shakaPlayer) return null;
+          var s = shakaPlayer.getStats();
+          return { stalls: s.stallsDetected, gaps: s.gapsJumped, bwKbps: Math.round((s.estimatedBandwidth || 0) / 1000), streamKbps: Math.round((s.streamBandwidth || 0) / 1000),
+                   bufS: r1(s.bufferingTime), playS: r1(s.playTime), nbuf: s.nonEmptyBufferingCount, dropped: s.droppedFrames, decoded: s.decodedFrames,
+                   liveLat: s.liveLatency == null ? null : r1(s.liveLatency), w: s.width, h: s.height, dlMB: r1((s.bytesDownloaded || 0) / 1048576) };
+        } catch (e) { return { err: String(e).slice(0, 60) }; }
+      }
+      function shakaStall() {
+        try {
+          if (!shakaPlayer) return;
+          var b = shakaPlayer.getBufferedInfo();
+          emit('log', 'shaka stall-time stats ' + J(sstats()) + ' bufferedInfo ' + J({ v: b.video, a: b.audio, t: b.total }).slice(0, 500));
+        } catch (e) {}
+      }
+      function shakaInfo(tag) {
+        try {
+          if (!shakaPlayer) return;
+          var cfg = shakaPlayer.getConfiguration();
+          emit('log', 'shaka ' + tag + ' streaming config ' + J(cfg.streaming).slice(0, 1400));
+          try { emit('log', 'shaka ' + tag + ' manifest config ' + J(cfg.manifest).slice(0, 700)); } catch (e) {}
+          var tr = shakaPlayer.getVariantTracks().map(function (t) { return { bw: t.bandwidth, c: t.codecs, m: t.mimeType, w: t.width, h: t.height, act: t.active }; });
+          emit('log', 'shaka ' + tag + ' tracks ' + J(tr).slice(0, 600) + ' live=' + shakaPlayer.isLive());
+        } catch (e) { emit('warn', 'shaka info failed: ' + e); }
+      }
+      function hookShaka(p) {
+        if (shakaPlayer) return;
+        shakaPlayer = p;
+        emit('log', 'shaka player instance captured');
+        ['buffering', 'error', 'adaptation', 'variantchanged', 'streaming', 'loaded', 'stalldetected', 'gapjumped'].forEach(function (name) {
+          try {
+            p.addEventListener(name, function (e) {
+              try {
+                if (++shakaEv > 400) return;
+                var x = '';
+                if (name === 'buffering') x = ' ' + e.buffering;
+                else if (name === 'error') { var dt = e.detail || e; x = ' ' + J({ code: dt.code, cat: dt.category, sev: dt.severity, data: dt.data && String(dt.data).slice(0, 80) }); }
+                else if (name === 'adaptation' || name === 'variantchanged') { var nt = e.newTrack || {}; x = ' ' + J({ bw: nt.bandwidth, w: nt.width, h: nt.height }); }
+                emit(name === 'error' ? 'error' : 'log', 'shaka event ' + name + x + ' ' + J(snap()));
+              } catch (er) {}
+            });
+          } catch (e) {}
+        });
+        setTimeout(function () { shakaInfo('t+1s'); }, 1000);
+        setTimeout(function () { shakaInfo('t+15s'); }, 15000);
+      }
+      var shakaPatchTries = 0, shakaPatched = false;
+      var shakaPatchTimer = setInterval(function () {
+        try {
+          if (++shakaPatchTries > 480) { clearInterval(shakaPatchTimer); if (!shakaPlayer) emit('warn', 'shaka player instance never captured'); return; }
+          if (shakaPatched || !(window.shaka && window.shaka.Player && window.shaka.Player.prototype)) return;
+          shakaPatched = true;
+          var proto = window.shaka.Player.prototype;
+          ['attach', 'configure', 'load', 'addEventListener'].forEach(function (nm) {
+            try {
+              var orig = proto[nm];
+              if (typeof orig !== 'function') return;
+              proto[nm] = function () { try { if (!shakaPlayer) hookShaka(this); } catch (e) {} return orig.apply(this, arguments); };
+            } catch (e) {}
+          });
+          emit('log', 'shaka.Player prototype hooks installed');
+        } catch (e) {}
+      }, 250);
+
+      // S4.4e: Response.prototype.json shim, ONLY for responses tagged above (Sleeper API). Equivalent to the native
+      // json() (text() then JSON.parse; same rejections) but times body read and parse separately. Any other response
+      // goes straight to the original. Fail-soft: if installing it throws, the native json() stays untouched.
+      try {
+        var origJson = Response.prototype.json;
+        Response.prototype.json = function () {
+          var rec = this.__dslRec;
+          if (!rec) return origJson.apply(this, arguments);
+          var t0 = performance.now();
+          return this.text().then(function (txt) {
+            var t1 = performance.now(), v;
+            try { v = JSON.parse(txt); }
+            catch (pe) { try { slDone(rec, t0, t1, performance.now(), txt.length, 'PARSE ERROR ' + pe); } catch (e) {} throw pe; }
+            try { slDone(rec, t0, t1, performance.now(), txt.length, null); } catch (e) {}
+            return v;
+          });
+        };
+        emit('log', 'Sleeper json() timing shim installed');
+      } catch (e) { emit('warn', 'json shim install failed: ' + e); }
+
       // passive full-download timing (resource timing entries; cross-origin entries still carry duration)
       try {
         new PerformanceObserver(function (list) {
@@ -496,6 +731,7 @@
               if (k !== 'seg') return;
               var dur = Math.round(e.duration);
               S.segDone++; S.segDur += dur;
+              mark('seg download ' + dur + 'ms');
               if (dur > S.segDurMax) S.segDurMax = dur;
               for (var i = recent.length - 1; i >= 0; i--) {
                 if (recent[i].url === e.name && recent[i].dur === undefined) { recent[i].dur = dur; break; }
@@ -514,7 +750,18 @@
           list.getEntries().forEach(function (e) {
             S.longTasks++;
             if (e.duration > S.longTaskMax) S.longTaskMax = e.duration;
-            if (e.duration >= 1000) emit('warn', 'LONG TASK ' + Math.round(e.duration) + ' ms');
+            if (e.duration >= 200) {
+              S.long200++;
+              var a = [];
+              try {
+                (e.attribution || []).forEach(function (x) {
+                  a.push(J({ n: x.name, ct: x.containerType, cn: x.containerName, ci: x.containerId, cs: x.containerSrc ? String(x.containerSrc).slice(-40) : '' }));
+                });
+              } catch (er) {}
+              var t0 = e.startTime, t1 = e.startTime + e.duration;
+              var near = marks.filter(function (m) { return m.t >= t0 - 100 && m.t <= t1 + 300; }).map(function (m) { return r1((m.t - T0) / 1000) + 's ' + m.s; });
+              emit(e.duration >= 1000 ? 'warn' : 'log', 'LONG TASK ' + Math.round(e.duration) + ' ms start ' + r1((t0 - T0) / 1000) + 's attr=' + (a.length ? a.join(';') : 'none') + ' near=[' + near.join(', ') + ']' + (ep ? ' (during stall #' + ep.n + ')' : '') + ' ' + reqState());
+            }
           });
         }).observe({ entryTypes: ['longtask'] });
       } catch (e) {}
@@ -534,6 +781,8 @@
         try {
           if (!pm && cafTries < 120) { cafTries++; hookCaf(); if (cafTries === 120 && !pm) emit('warn', 'CAF player manager never became available'); }
           if (!video || !video.isConnected) { var v = findVideo(document, 0); if (v) attachVideo(v); }
+          var po = !!(window.__diag && window.__diag.pollOff);
+          if (po !== pollLogged) { pollLogged = po; emit('warn', 'receiver 3 s Sleeper poll ' + (po ? 'DISABLED' : 'ENABLED') + ' via __diag.pollOff'); }
         } catch (e) {}
       }, 1000);
 
@@ -551,9 +800,16 @@
             dropped: q ? q.droppedVideoFrames + '/' + q.totalVideoFrames : null,
             heapMB: performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null,
             matchup: !!(document.body && document.body.classList.contains('matchup-mode')),
-            stalled: !!ep
+            stalled: !!ep,
+            long200: S.long200,
+            pollOff: !!(window.__diag && window.__diag.pollOff),
+            sleeper: { n: S.slN, hdrMax: S.slHdrMax, readAvg: S.slJson ? Math.round(S.slReadSum / S.slJson) : null, readMaxWin: S.slReadWin, readMax: S.slReadMax,
+                       parseAvg: S.slJson ? Math.round(S.slParseSum / S.slJson) : null, parseMaxWin: S.slParseWin, parseMax: S.slParseMax,
+                       kb: Math.round(S.slBytes / 1024), overlapMax: S.slOverlapMax },
+            mse: mseSummary(),
+            shaka: sstats()
           };
-          S.lagWin = 0;
+          S.lagWin = 0; S.slParseWin = 0; S.slReadWin = 0; M.aWin = 0; M.sWin = 0;
           var s = snap();
           for (var key in s) hb[key] = s[key];
           emit('log', 'HEARTBEAT ' + J(hb));
@@ -562,9 +818,17 @@
 
       window.__diag = {
         dump: function () { console.log(ring.join('\n')); return ring.length; },
-        ring: ring, recent: recent, stats: S, snap: snap
+        ring: ring, recent: recent, stats: S, snap: snap,
+        // A/B switch: __diag.pollOff = true (live, no reload) disables the receiver's own 3 s Sleeper poll; false re-enables.
+        // __diag.setPollOff(true) also persists it in localStorage for later sessions on this device.
+        pollOff: pollOffInit,
+        setPollOff: function (on) {
+          try { if (on) localStorage.setItem('diag.pollOff', '1'); else localStorage.removeItem('diag.pollOff'); } catch (e) {}
+          this.pollOff = !!on;
+          return 'pollOff=' + this.pollOff;
+        }
       };
-      emit('log', 'diagnostics armed (observation only). ua=' + navigator.userAgent);
+      emit('log', 'diagnostics armed (S4.4f: console.log only, Sleeper timing, long-task attribution, MSE append timing, Shaka internals; observation only unless __diag.pollOff). ua=' + navigator.userAgent);
       try {
         if (window.PerformanceObserver && PerformanceObserver.supportedEntryTypes) emit('log', 'perf entry types: ' + PerformanceObserver.supportedEntryTypes.join(','));
       } catch (e) {}
@@ -1658,6 +1922,7 @@ function renderCards(cfg, games) {
 
     async function pollPlayerCard() {
       if (document.body.classList.contains('matchup-mode')) return; // S4.1: matchup mode owns the screen
+      if (window.__diag && window.__diag.pollOff) return; // S4.4e: opt-in A/B switch (default off), see diag script
       const myEpoch = pcConfigEpoch; // see pcConfigEpoch: discard this poll if the config changes mid-flight
       try {
         const [playsRes, statsRes] = await Promise.all([
