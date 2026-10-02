@@ -74,6 +74,130 @@
   .player-card .pc-ticker.visible {
     opacity: 1;
   }
+  /* ---- S4.1 matchup mode: region between the BEGIN/END markers is generated from matchup.html ---- */
+  /* BEGIN SHARED CSS */
+:root { --screen-vw: 1vw; }
+  #lane-matchup {
+    --mk: 1.8;
+    --pad-y: 5;
+    --pad-x: 7;
+    --gap: 5;
+    --stats-pad: 3;
+    --u: calc(var(--mk) / 1920 * (100 * var(--screen-vw)));
+    position: absolute;
+    top: 0; bottom: 0; left: 0; right: 0;
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: flex-start;
+    box-sizing: border-box;
+    padding-top: calc(var(--gap) * var(--u));
+  }
+  #lane-matchup .matchup-side {
+    display: flex;
+    flex-direction: column;
+    gap: calc(var(--gap) * var(--u));
+    flex: 0 0 auto;
+    width: calc(110 * var(--u));
+  }
+  #lane-matchup .player-card {
+    flex: 0 0 auto;
+    width: 100%;
+    background: rgba(0,0,0,0.72);
+    border-radius: calc(6 * var(--u));
+    padding: calc(var(--pad-y) * var(--u)) calc(var(--pad-x) * var(--u));
+    color: #fff;
+    font-size: calc(9.68 * var(--u));
+    box-sizing: border-box;
+    position: relative;
+  }
+  #lane-matchup .player-card .pc-name {
+    color: #fff;
+    font-size: calc(11.495 * var(--u));
+    font-weight: 700;
+    margin-bottom: calc(2.42 * var(--u));
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: calc(4 * var(--u));
+  }
+  #lane-matchup .player-card .pc-name .pc-name-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  #lane-matchup .player-card .pc-name .pc-actual-pts { flex: 0 0 auto; }
+  #lane-matchup .player-card .pc-game-state {
+    font-size: calc(7.865 * var(--u));
+    color: #ccc;
+    margin-bottom: calc(4.84 * var(--u));
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+  }
+  #lane-matchup .player-card .pc-game-state .pc-proj-pts { flex: 0 0 auto; }
+  #lane-matchup .player-card .pc-situation {
+    font-size: calc(7.865 * var(--u));
+    color: #aaa;
+    margin-bottom: calc(6.05 * var(--u));
+  }
+  #lane-matchup .player-card .pc-stats {
+    font-size: calc(7.865 * var(--u));
+    font-weight: 400;
+    color: #aaa;
+    border-top: 1px solid #333;
+    padding-top: calc(var(--stats-pad) * var(--u));
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-height: 1em;
+  }
+  /* S3.2 field-position dot (ported from debug-cards): .pc-field is a zero-height wrapper right above
+     .pc-stats (whose border-top IS the field line); the dot sits on its top edge so .pc-stats'
+     overflow:hidden can't clip it. left% is set in JS. */
+  #lane-matchup .player-card .pc-field { position: relative; height: 0; width: 100%; }
+  #lane-matchup .player-card .pc-field-dot {
+    position: absolute;
+    top: 0.5px;
+    left: 0;
+    width: calc(5 * var(--u));
+    height: calc(5 * var(--u));
+    border-radius: 50%;
+    background: #4ade80;
+    transform: translate(-50%, -50%);
+    opacity: 0;
+    transition: left 0.3s ease, opacity 0.2s ease;
+    pointer-events: none;
+  }
+  #lane-matchup .player-card .pc-field-dot.visible { opacity: 1; }
+  #lane-matchup .player-card .pc-field-dot.no-anim { transition: none; }
+  /* S3.3 ticker (ported from debug-cards): signed fantasy-points delta, OUTSIDE the card on the name/points
+     line (right of own-column cards, left of opp-column cards), dark bg so the green text stays readable. */
+  #lane-matchup .player-card .pc-ticker {
+    position: absolute;
+    left: 100%;
+    top: calc((var(--pad-y) - 2) * var(--u));
+    margin-left: calc(4 * var(--u));
+    padding: calc(2 * var(--u)) calc(4 * var(--u));
+    background: rgba(0,0,0,0.85);
+    border-radius: calc(3 * var(--u));
+    font-size: calc(11.495 * var(--u));
+    font-weight: 700;
+    color: #4ade80;
+    opacity: 0;
+    transition: opacity 0.25s ease;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+  #lane-matchup .matchup-side.opp .player-card .pc-ticker { left: auto; right: 100%; margin-left: 0; margin-right: calc(4 * var(--u)); }
+  #lane-matchup .player-card .pc-ticker.visible { opacity: 1; }
+  /* END SHARED CSS */
+  /* receiver-only: hidden unless body.matchup-mode; sits above the video like .player-cards; resets the old
+     top-level .pc-ticker props (margin-top/min-height/overflow) that the shared ticker rule does not override */
+  #lane-matchup { display: none; z-index: 10; pointer-events: none; }
+  body.matchup-mode #lane-matchup { display: flex; }
+  body.matchup-mode #player-cards { display: none; }
+  #lane-matchup .player-card .pc-ticker { margin-top: 0; min-height: 0; overflow: visible; text-overflow: clip; }
 </style>
 </head>
 <body>
@@ -81,9 +205,813 @@
     <cast-media-player></cast-media-player>
 
     <div class="player-cards" id="player-cards"></div>
+
+    <!-- S4.1 matchup mode screen (hidden unless body.matchup-mode) -->
+    <div id="lane-matchup">
+      <div id="matchup-own" class="matchup-side own"></div>
+      <div id="matchup-opp" class="matchup-side opp"></div>
+    </div>
   </div>
 
   <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
+  <script>
+  // ---- S4.1 MATCHUP MODE (2026-10-01): 18-card live matchup screen, additive to the 3-card mode below. ----
+  // Own <script> + IIFE so none of its names collide with the 3-card script (e.g. a DIFFERENT formatStatLine).
+  // Activated by a CONFIG with mode:'matchup'; any other CONFIG takes the original path unchanged.
+  window.KICKOFF_TZ = 'America/New_York'; // pregame kickoff times fixed to ET like the 3-card mode
+  window.MatchupMode = (function() {
+  // ==== BEGIN SHARED JS (generated from matchup.html -- byte-identical region, do not hand-edit) ====
+const API = 'https://api.sleeper.app';
+const SEASON_TYPE = 'regular';
+const NON_STARTER_SLOTS = ['BN', 'IR', 'TAXI'];
+
+async function getJson(url) {
+  const res = await fetch(url, { cache: 'no-store' });
+  if (!res.ok) throw new Error(url + ' -> HTTP ' + res.status);
+  return res.json();
+}
+
+function loadLeague(leagueId) {
+  return getJson(API + '/v1/league/' + encodeURIComponent(leagueId));
+}
+
+// Teams for the picker: roster_id + display name (team_name, else owner display_name).
+async function loadTeams(leagueId) {
+  const [users, rosters] = await Promise.all([
+    getJson(API + '/v1/league/' + encodeURIComponent(leagueId) + '/users'),
+    getJson(API + '/v1/league/' + encodeURIComponent(leagueId) + '/rosters')
+  ]);
+  const byOwner = {};
+  users.forEach(function(u) { byOwner[u.user_id] = u; });
+  return rosters.map(function(r) {
+    const u = byOwner[r.owner_id] || {};
+    const teamName = (u.metadata && u.metadata.team_name) || u.display_name || ('Team ' + r.roster_id);
+    return { rosterId: r.roster_id, ownerId: r.owner_id, name: teamName, owner: u.display_name || '' };
+  }).sort(function(a, b) { return a.rosterId - b.rosterId; });
+}
+
+// Starting slots in lineup order (matchups[].starters aligns index-for-index with these).
+function startingSlots(rosterPositions) {
+  return (rosterPositions || []).filter(function(p) { return NON_STARTER_SLOTS.indexOf(p) === -1; });
+}
+
+// Week-wide projections (one call). Doubles as the name/position/team lookup: each row carries an
+// embedded `player` object, so no heavy /v1/players/nfl pull is needed. Returns Map(playerId -> row).
+async function loadWeekProjections(season, week) {
+  const rows = await getJson(API + '/projections/nfl/' + season + '/' + week + '?season_type=' + SEASON_TYPE);
+  const map = {};
+  rows.forEach(function(r) { map[String(r.player_id)] = r; });
+  return map;
+}
+
+// Resolve the picked team's matchup: both sides' week-specific starters mapped onto slots.
+// Opponent = other roster sharing matchup_id; null matchup_id / no partner => opp = null (own side only).
+async function resolveMatchup(leagueId, week, rosterId, projMap) {
+  const [league, teams, matchups] = await Promise.all([
+    loadLeague(leagueId),
+    loadTeams(leagueId),
+    getJson(API + '/v1/league/' + encodeURIComponent(leagueId) + '/matchups/' + week)
+  ]);
+  const slots = startingSlots(league.roster_positions);
+  const ownM = matchups.find(function(m) { return Number(m.roster_id) === Number(rosterId); });
+  if (!ownM) throw new Error('roster ' + rosterId + ' not found in week ' + week + ' matchups');
+  const oppM = (ownM.matchup_id == null) ? null : (matchups.find(function(m) {
+    return m.matchup_id === ownM.matchup_id && Number(m.roster_id) !== Number(rosterId);
+  }) || null);
+  const teamById = {};
+  teams.forEach(function(t) { teamById[t.rosterId] = t; });
+
+  function buildSide(side, m) {
+    const players = [];
+    const starters = m.starters || [];
+    starters.forEach(function(pid, i) {
+      const id = String(pid);
+      if (!id || id === '0') { players.push({ side: side, slot: slots[i] || '?', playerId: null, empty: true }); return; }
+      const row = projMap ? projMap[id] : null;
+      const p = (row && row.player) || {};
+      const isDef = (slots[i] === 'DEF') || !/^\d+$/.test(id);
+      players.push({
+        side: side,
+        slot: slots[i] || '?',
+        playerId: id,
+        name: isDef ? ((p.first_name ? (p.first_name + ' ' + (p.last_name || '')).trim() : id)) : (((p.first_name || '') + ' ' + (p.last_name || '')).trim() || id),
+        pos: isDef ? 'DEF' : ((p.position) || (p.fantasy_positions && p.fantasy_positions[0]) || '?'),
+        team: isDef ? id : (p.team || null),
+        projStats: row ? row.stats : null
+      });
+    });
+    return { side: side, rosterId: m.roster_id, team: teamById[m.roster_id] || null, players: players };
+  }
+
+  return {
+    leagueId: String(leagueId),
+    leagueName: league.name,
+    season: league.season,
+    seasonType: SEASON_TYPE,
+    week: Number(week),
+    slots: slots,
+    scoring: league.scoring_settings,
+    own: buildSide('own', ownM),
+    opp: oppM ? buildSide('opp', oppM) : null
+  };
+}
+
+// ---------------------------------------------------------------------------
+// S1.2 (2026-10-01): static cards. Pure helpers first (node-testable), DOM render after.
+// ---------------------------------------------------------------------------
+
+// 2 decimals (matches debug-cards fmtPts), plus a tiny epsilon so float-sum artifacts at an exact
+// half (9.524999999999999 for a true 9.525) round half-up like the stored data does.
+function fmtPts(n) {
+  return (Math.round((n + (n >= 0 ? 1e-9 : -1e-9)) * 100) / 100).toFixed(2);
+}
+
+// Matchup-bar name line (same rule as debug-cards formatMatchupName): `F. Last` for players,
+// DEF = last word of the team name only. Known limit (same as debug): a multi-token last name
+// renders as initial + the rest ('A. St. Brown'); a one-token name renders 'X. '.
+function formatMatchupName(p) {
+  const parts = String(p.name || '').trim().split(/\s+/);
+  if (p.slot === 'DEF' || p.pos === 'DEF') return parts[parts.length - 1];
+  const first = parts.shift() || '';
+  return first.charAt(0) + '. ' + parts.join(' ');
+}
+
+// League-scored projection: plain dot product of the projection row's stats over the league's
+// scoring_settings keys. (DEF rows already carry their bracket flags, so no bracket parsing.)
+function leagueComputedProj(stats, scoring) {
+  let total = 0;
+  Object.keys(scoring || {}).forEach(function(k) {
+    const v = stats ? stats[k] : undefined;
+    if (typeof v === 'number' && typeof scoring[k] === 'number') total += v * scoring[k];
+  });
+  return total;
+}
+
+// Kickoff text `Ddd h:mm AM/PM` in the viewer's local timezone (debug-cards hard-coded 'Mon 8:15 PM').
+function kickoffText(iso) {
+  const d = new Date(iso);
+  if (!iso || isNaN(d.getTime())) return '';
+  // S4.1: optional fixed timezone (the Chromecast receiver sets window.KICKOFF_TZ = 'America/New_York');
+  // unset => viewer-local exactly as before.
+  const tz = (typeof window !== 'undefined' && window.KICKOFF_TZ) || undefined;
+  return d.toLocaleDateString('en-US', { weekday: 'short', timeZone: tz }) + ' ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: tz });
+}
+
+// Week schedule from /scores: map team abbr -> { away, home, dateTime, isOver, inProgress }.
+async function fetchGames(season, week) {
+  const raw = await getJson(API + '/scores/nfl/' + SEASON_TYPE + '/' + season + '/' + week);
+  const rows = Array.isArray(raw) ? raw : (raw && raw.games) || [];
+  const byTeam = {};
+  rows.forEach(function(g) {
+    const m = g.metadata || {};
+    if (!m.away_team || !m.home_team) return;
+    const info = { gameKey: m.game_key || null, away: m.away_team, home: m.home_team, dateTime: m.date_time || g.date || null, isOver: !!m.is_over, inProgress: !!m.is_in_progress };
+    byTeam[m.away_team] = info;
+    byTeam[m.home_team] = info;
+  });
+  return byTeam;
+}
+
+// Pregame score-slot text: `<kickoff> VS|@ <opp>` (VS = this team is the home team); BYE if no game.
+function pregameText(team, games) {
+  if (!team) return '';
+  const g = games ? games[team] : null;
+  if (!g) return 'BYE';
+  const isHome = g.home === team;
+  return (kickoffText(g.dateTime) + ' ' + (isHome ? 'VS' : '@') + ' ' + (isHome ? g.away : g.home)).trim();
+}
+
+// ---------------------------------------------------------------------------
+// S2.1 (2026-10-01): league scoring engine on CUMULATIVE stat rows (the /stats/nfl/game/<id> row's
+// `stats{}`). Pure, node-testable. Rules (source: live-stats FantasyScoring.ps1 + wk2 probe):
+//  (1) every NON-bracket scoring_settings key: stats[key] * scoring[key] (bonus counters, 40+ yd
+//      thresholds, K keys, fum etc. all arrive as plain cumulative counts in the row);
+//  (2) pts_allow_* / yds_allow_* are mutually-exclusive BRACKET flags: only the CURRENT band counts =
+//      the highest-lower-bound band whose flag is > 0 in the row (covers rows that carry only the
+//      current flag AND rows with sticky earlier flags); bands absent from scoring score 0 but still
+//      win as the current band; a DEF row with no flag yet sits in its '0' band (baseline value).
+//  (3) the baseline only applies to DEF (pos === 'DEF') -- never add it to non-DEF rows.
+// ---------------------------------------------------------------------------
+const BRACKET_RE = /^(pts_allow|yds_allow)_(\d+)(?:_\d+|p)?$/;
+const BRACKET_FAMILY_NAMES = ['pts_allow', 'yds_allow'];
+function bracketInfo(key) {
+  const m = BRACKET_RE.exec(key);
+  return m ? { family: m[1], lo: Number(m[2]) } : null;
+}
+function leagueScore(stats, scoring, pos) {
+  if (!stats) return 0;
+  const sc = scoring || {};
+  let total = 0;
+  Object.keys(sc).forEach(function(k) {
+    if (typeof sc[k] !== 'number' || bracketInfo(k)) return;
+    const v = stats[k];
+    if (typeof v === 'number') total += v * sc[k];
+  });
+  const cur = {};
+  Object.keys(stats).forEach(function(k) {
+    const b = bracketInfo(k);
+    if (!b || !(stats[k] > 0)) return;
+    if (!cur[b.family] || b.lo > cur[b.family].lo) cur[b.family] = { lo: b.lo, key: k };
+  });
+  BRACKET_FAMILY_NAMES.forEach(function(f) {
+    let key = cur[f] ? cur[f].key : null;
+    if (!key && pos === 'DEF') {
+      Object.keys(sc).forEach(function(k) { const b = bracketInfo(k); if (b && b.family === f && b.lo === 0) key = k; });
+    }
+    if (key && typeof sc[key] === 'number') total += sc[key];
+  });
+  return total;
+}
+
+// ---------------------------------------------------------------------------
+// S2.2 (2026-10-01): per-game stats polling. Pure planner + injectable one-tick runner (node-testable
+// with fake deps/clock), then the DOM paint + timer loop. Policy (user, 2026-10-01): a game that has
+// not started is NEVER polled -- gated on wall clock vs its scheduled start (/scores date_time), no
+// early checks; once now >= start (or /scores says in progress) stats are polled every STATS_POLL_MS;
+// /scores is re-read every SCORES_REFRESH_MS ONLY while some game is being polled, to learn
+// is_over/is_in_progress; an is_over game gets ONE final stats fetch, then stops.
+// ---------------------------------------------------------------------------
+const STATS_POLL_MS = 15000;
+const SCORES_REFRESH_MS = 60000;
+const MAX_SLEEP_MS = 60000;
+
+// phase: 'WAIT' (before scheduled start), 'POLL' (started / in progress), 'FINAL' (over, final stats not
+// fetched yet), 'DONE' (over + final stats fetched). Missing/invalid start time => POLL (never stall).
+function gamePhase(g, nowMs, finalFetched) {
+  if (g.isOver) return (finalFetched && finalFetched[g.gameKey]) ? 'DONE' : 'FINAL';
+  const start = Date.parse(g.dateTime);
+  if (g.inProgress || isNaN(start) || nowMs >= start) return 'POLL';
+  return 'WAIT';
+}
+
+// Only the games the picked matchup's players are in (fetchGames returns all 32 teams).
+function relevantGames(cfg, games) {
+  const out = {};
+  [cfg.own, cfg.opp].forEach(function(side) {
+    if (!side) return;
+    side.players.forEach(function(p) {
+      if (p.empty || !p.team || !games || !games[p.team]) return;
+      out[p.team] = games[p.team];
+    });
+  });
+  return out;
+}
+
+function idsForGame(cfg, games, gameKey) {
+  const ids = [];
+  [cfg.own, cfg.opp].forEach(function(side) {
+    if (!side) return;
+    side.players.forEach(function(p) {
+      if (p.empty || !p.playerId || !p.team) return;
+      const g = games ? games[p.team] : null;
+      if (g && g.gameKey === gameKey) ids.push(p.playerId);
+    });
+  });
+  return ids;
+}
+
+// games = team -> game info map (already filtered to relevant teams). Returns what to do NOW.
+function planPolls(games, finalFetched, nowMs, lastScoresMs) {
+  const seen = {};
+  const pollKeys = [], finalKeys = [];
+  let anyPoll = false, anyWait = false, minWait = Infinity;
+  Object.keys(games || {}).forEach(function(team) {
+    const g = games[team];
+    if (!g || !g.gameKey || seen[g.gameKey]) return;
+    seen[g.gameKey] = true;
+    const ph = gamePhase(g, nowMs, finalFetched);
+    if (ph === 'POLL') { pollKeys.push(g.gameKey); anyPoll = true; }
+    else if (ph === 'FINAL') { pollKeys.push(g.gameKey); finalKeys.push(g.gameKey); }
+    else if (ph === 'WAIT') { anyWait = true; minWait = Math.min(minWait, Date.parse(g.dateTime) - nowMs); }
+  });
+  const refreshScores = anyPoll && (nowMs - (lastScoresMs || 0) >= SCORES_REFRESH_MS);
+  let nextWakeMs = null;
+  if (pollKeys.length) nextWakeMs = STATS_POLL_MS;
+  else if (anyWait) nextWakeMs = Math.max(1000, minWait);
+  return { pollKeys: pollKeys, finalKeys: finalKeys, refreshScores: refreshScores, nextWakeMs: nextWakeMs, done: nextWakeMs === null };
+}
+
+// One game's cumulative stats, reduced to just the picked players: playerId -> stats{}.
+async function fetchGameStats(season, gameKey, ids) {
+  const rows = await getJson(API + '/stats/nfl/game/' + encodeURIComponent(gameKey) + '?season_type=' + SEASON_TYPE + '&season=' + season);
+  const want = {};
+  (ids || []).forEach(function(id) { want[String(id)] = true; });
+  const out = {};
+  (Array.isArray(rows) ? rows : []).forEach(function(r) {
+    const id = String(r.player_id);
+    if (want[id]) out[id] = r.stats || {};
+  });
+  return out;
+}
+
+// playerId -> league points. A player whose game has not been fetched yet is omitted (card stays
+// blank); fetched game + no row => 0 for non-DEF, null (blank) for DEF.
+function computeCardPoints(cfg, statsByGame, games) {
+  const out = {};
+  [cfg.own, cfg.opp].forEach(function(side) {
+    if (!side) return;
+    side.players.forEach(function(p) {
+      if (p.empty || !p.playerId) return;
+      const g = games ? games[p.team] : null;
+      const rows = (g && g.gameKey) ? statsByGame[g.gameKey] : null;
+      if (!rows) return;
+      const st = rows[p.playerId];
+      out[p.playerId] = st ? leagueScore(st, cfg.scoring, p.pos) : (p.pos === 'DEF' ? null : 0);
+    });
+  });
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// S3.1 (2026-10-01): per-game live state from the genius plays feed. deriveCurrentState + its two
+// label helpers are copied VERBATIM from receiver.html (the authoritative live copy; itself a port
+// of debug-cards). plays = newest-first array. cardView is the pure per-card perspective rules.
+// ---------------------------------------------------------------------------
+function ordinal(n) {
+  const s = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+function specialLabelForPlay(m) {
+  if (m.play_type === 'kickoff' || m.play_type === 'kickoff_touchback' || m.play_type === 'kickoff_muffed') {
+    return (m.team || m.possession) + ' Kickoff';
+  }
+  if (m.play_type === 'extra_point' || m.play_type === 'two_point_conversion' || m.play_type === 'two_point_attempt') {
+    return (m.team || m.possession) + ' Extra Point';
+  }
+  if (m.play_type === 'field_goal' && /is GOOD/i.test(m.description || '')) {
+    return (m.team || m.possession) + ' Kickoff';
+  }
+  return null;
+}
+function terminalPhaseLabelForPlay(m) {
+  if (m.play_type === 'game_over') return 'Final';
+  if (m.play_type === 'period_end' && m.quarter_name === '2') return 'Halftime';
+  return null;
+}
+function deriveCurrentState(plays) {
+  const newest = plays[0];
+  const nm = newest.metadata || {};
+
+  const term = terminalPhaseLabelForPlay(nm);
+  if (term === 'Final') {
+    return { clockStr: '', gamestate: 'FINAL', awayPts: nm.away_points, homePts: nm.home_points, possession: null, specialLabel: null, endZone: false };
+  }
+  if (term === 'Halftime') {
+    return { clockStr: 'Halftime', gamestate: 'HALFTIME', awayPts: nm.away_points, homePts: nm.home_points, possession: null, specialLabel: null, endZone: false };
+  }
+
+  let statePlay = plays.find(p => p.metadata && p.metadata.down) || newest;
+  const m = statePlay.metadata || {};
+  const clockStr = (m.quarter_name != null && m.time_remaining_minutes != null)
+    ? `Q${m.quarter_name} ${m.time_remaining_minutes}:${String(m.time_remaining_seconds).padStart(2, '0')}`
+    : '--';
+
+  const awayPts = nm.away_points;
+  const homePts = nm.home_points;
+
+  const label = specialLabelForPlay(nm);
+  if (label) {
+    return { clockStr, gamestate: 'LIVE', awayPts, homePts, possession: nm.possession, specialLabel: label, endZone: false, down: null, distance: null };
+  }
+  if (nm.is_scoring_play) {
+    return { clockStr, gamestate: 'LIVE', awayPts, homePts, possession: nm.possession, specialLabel: null, endZone: true, down: null, distance: null };
+  }
+
+  const statePlayIdx = plays.indexOf(statePlay);
+  let situationSourceMeta = m;
+  for (let i = statePlayIdx - 1; i >= 0; i--) {
+    const cand = plays[i].metadata;
+    if (cand && cand.down) { situationSourceMeta = cand; break; }
+  }
+  return {
+    clockStr, gamestate: 'LIVE', awayPts, homePts,
+    possession: situationSourceMeta.possession || m.possession,
+    specialLabel: null, endZone: false,
+    down: situationSourceMeta.down, distance: situationSourceMeta.distance,
+    fieldTeam: situationSourceMeta.yard_line_territory, fieldYards: situationSourceMeta.yard_line
+  };
+}
+
+// Newest-first plays for one game (genius provider, same URL the receiver polls).
+async function fetchGamePlays(season, gameKey) {
+  const data = await getJson(API + '/plays/nfl/' + SEASON_TYPE + '/' + season + '/game/' + encodeURIComponent(gameKey) + '?limit=25&provider=genius');
+  return (data && data.plays) || [];
+}
+
+// S3.2: field-dot position along the card's divider line, 0-100 = progress from the card team's OWN goal
+// line (0) to the opponent's (100); null = dot hidden. Same rules as debug-cards updateFieldDot: only while
+// LIVE (halftime/final carry no possession), no special label (kickoff/extra point), and only on the card of
+// the team with the ball; End Zone => 100; else fieldYards (0-50 from fieldTeam's own goal line) flipped to
+// the card team's frame.
+function fieldDotPct(p, st) {
+  if (!st || !p || !p.team) return null;
+  if (st.gamestate !== 'LIVE' || st.specialLabel) return null;
+  if (st.possession !== p.team) return null;
+  let pct = null;
+  if (st.endZone) pct = 100;
+  else if (st.fieldTeam && st.fieldYards != null && isFinite(Number(st.fieldYards))) {
+    pct = (st.fieldTeam === p.team) ? Number(st.fieldYards) : 100 - Number(st.fieldYards);
+  }
+  if (pct === null) return null;
+  return Math.max(0, Math.min(100, pct));
+}
+// Own column progresses left->right (own goal at the screen edge), opp column right->left (mirrored).
+function dotLeftPct(side, pct) { return side === 'own' ? pct : 100 - pct; }
+
+// Pure per-card perspective view. p = cfg player, g = that team's game ({home, away,...}), st = derived
+// state or null. Returns null when there is nothing live to show (card keeps its pregame text), else
+// { clock, score, situation } where situation === null means HIDE the row (halftime/final).
+// Rules ported from receiver.html's paint: own-score-first; FINAL = `W|L|T own - opp VS|@ opp`; situation
+// priority specialLabel > End Zone (own possession) > '<TEAM> on Defense' > down & distance > '--'.
+function cardView(p, g, st) {
+  if (!st || !g || !p || !p.team) return null;
+  const isHome = g.home === p.team;
+  const ownScore = isHome ? st.homePts : st.awayPts;
+  const oppScore = isHome ? st.awayPts : st.homePts;
+  const oppAbbr = isHome ? g.away : g.home;
+  const vsOrAt = isHome ? 'VS' : '@';
+  const hasScores = ownScore != null && oppScore != null;
+  let score;
+  if (st.gamestate === 'FINAL' && hasScores) {
+    const result = ownScore > oppScore ? 'W' : (ownScore < oppScore ? 'L' : 'T');
+    score = result + ' ' + ownScore + ' - ' + oppScore + ' ' + vsOrAt + ' ' + oppAbbr;
+  } else if (hasScores) {
+    score = ownScore + ' - ' + oppScore;
+  } else {
+    score = '--';
+  }
+  const terminal = st.gamestate === 'HALFTIME' || st.gamestate === 'FINAL';
+  let situation = null;
+  if (!terminal) {
+    if (st.specialLabel) situation = st.specialLabel;
+    else if (st.endZone && st.possession === p.team) situation = 'End Zone';
+    else if (st.possession && st.possession !== p.team) situation = p.team + ' on Defense';
+    else if (st.down && st.distance != null) situation = (ordinal(st.down) + ' & ' + st.distance + ' @ ' + (st.fieldTeam || '') + ' ' + (st.fieldYards != null ? st.fieldYards : '')).trim();
+    else situation = '--';
+  }
+  const dotPct = fieldDotPct(p, st);
+  return { clock: st.gamestate === 'FINAL' ? '' : (st.clockStr || ''), score: score, situation: situation, dotLeft: dotPct === null ? null : dotLeftPct(p.side, dotPct) };
+}
+
+// Cumulative stat line (copied verbatim from debug-cards.html formatStatLine, which is itself the receiver's).
+// QB: `C/A CMP, N YD, N TD, N CAR, N YD, N TD`; everyone else: `N CAR, N YD, R/T REC, N YD, N TD`; only nonzero
+// parts are listed; DEF falls through the non-QB branch and yields '' (blank), same as debug.
+function formatStatLine(stats, position) {
+  if (!stats) return '--';
+  const parts = [];
+  if (position === 'QB') {
+    if (stats.pass_att) parts.push(`${stats.pass_cmp || 0}/${stats.pass_att} CMP`);
+    if (stats.pass_yd) parts.push(`${stats.pass_yd} YD`);
+    if (stats.pass_td) parts.push(`${stats.pass_td} TD`);
+    if (stats.rush_att) parts.push(`${stats.rush_att} CAR`);
+    if (stats.rush_yd) parts.push(`${stats.rush_yd} YD`);
+    if (stats.rush_td) parts.push(`${stats.rush_td} TD`);
+    return parts.length ? parts.join(', ') : '--';
+  }
+  if (stats.rush_att) parts.push(`${stats.rush_att} CAR`);
+  if (stats.rush_yd) parts.push(`${stats.rush_yd} YD`);
+  if (stats.rec_tgt || stats.rec) parts.push(`${stats.rec || 0}/${stats.rec_tgt || 0} REC`);
+  if (stats.rec_yd) parts.push(`${stats.rec_yd} YD`);
+  const tds = (stats.rush_td || 0) + (stats.rec_td || 0);
+  if (tds) parts.push(`${tds} TD`);
+  return parts.length ? parts.join(', ') : '';
+}
+
+// playerId -> stat-line text for every picked player whose game stats have been fetched AND who has a row
+// there; anything else is omitted so that card's line stays as it was (blank before kickoff).
+function computeStatLines(cfg, statsByGame, games) {
+  const out = {};
+  [cfg.own, cfg.opp].forEach(function(side) {
+    if (!side) return;
+    side.players.forEach(function(p) {
+      if (p.empty || !p.playerId) return;
+      const g = games ? games[p.team] : null;
+      const rows = (g && g.gameKey) ? statsByGame[g.gameKey] : null;
+      if (!rows || !rows[p.playerId]) return;
+      out[p.playerId] = formatStatLine(rows[p.playerId], p.pos);
+    });
+  });
+  return out;
+}
+
+// S3.3: ticker text for one card = signed change in the DISPLAYED (2dp) points between two consecutive stats
+// polls, e.g. '+1.90' / '-1.00'; null when there is no baseline yet (first poll seeds it) or the net change is 0.
+function pointsDelta(prev, next) {
+  if (prev == null || next == null) return null;
+  const d = Math.round((Number(fmtPts(next)) - Number(fmtPts(prev))) * 100) / 100;
+  if (Math.abs(d) < 0.005) return null;
+  return (d > 0 ? '+' : '') + fmtPts(d);
+}
+// Mutates lastPoints (playerId -> last displayed points) and returns { playerId: tickerText } for changed cards only.
+// A null/absent points value never overwrites a stored baseline.
+function updateTickers(lastPoints, pts) {
+  const out = {};
+  Object.keys(pts || {}).forEach(function(pid) {
+    const next = pts[pid];
+    if (next == null) return;
+    const t = pointsDelta(lastPoints[pid], next);
+    if (t) out[pid] = t;
+    lastPoints[pid] = next;
+  });
+  return out;
+}
+
+// One poll tick. state = { cfg, games, statsByGame, statesByGame, finalFetched, lastScoresMs, lastPoints }; deps = { now, fetchGames, fetchGamePlays,
+// fetchGameStats, paint }. Mutates state; returns { nextWakeMs, done, polled, errors }. Fetch errors keep
+// the previously stored stats (card keeps its last points) and are reported, never thrown.
+async function pollOnce(state, deps) {
+  const now = deps.now();
+  const errors = [];
+  let plan = planPolls(relevantGames(state.cfg, state.games), state.finalFetched, now, state.lastScoresMs);
+  if (plan.refreshScores) {
+    state.lastScoresMs = now; // set even on failure so a broken /scores is not hammered every tick
+    try {
+      state.games = await deps.fetchGames(state.cfg.season, state.cfg.week);
+      plan = planPolls(relevantGames(state.cfg, state.games), state.finalFetched, now, state.lastScoresMs);
+    } catch (e) { errors.push('scores: ' + e.message); }
+  }
+  state.statesByGame = state.statesByGame || {};
+  await Promise.all(plan.pollKeys.map(async function(key) {
+    let ok = true;
+    await Promise.all([
+      (async function() {
+        try {
+          state.statsByGame[key] = await deps.fetchGameStats(state.cfg.season, key, idsForGame(state.cfg, state.games, key));
+        } catch (e) { ok = false; errors.push(key + ' stats: ' + e.message); }
+      })(),
+      (async function() {
+        try {
+          const plays = await deps.fetchGamePlays(state.cfg.season, key);
+          if (plays && plays.length) state.statesByGame[key] = deriveCurrentState(plays);
+        } catch (e) { ok = false; errors.push(key + ' plays: ' + e.message); }
+      })()
+    ]);
+    if (ok && plan.finalKeys.indexOf(key) !== -1) state.finalFetched[key] = true;
+  }));
+  state.lastPoints = state.lastPoints || {};
+  const pts = computeCardPoints(state.cfg, state.statsByGame, state.games);
+  const tickers = updateTickers(state.lastPoints, pts);
+  deps.paint(pts, state.statesByGame, tickers);
+  const next = planPolls(relevantGames(state.cfg, state.games), state.finalFetched, deps.now(), state.lastScoresMs);
+  return { nextWakeMs: next.nextWakeMs, done: next.done, polled: plan.pollKeys, errors: errors };
+}
+
+// ---- DOM (browser only) ----
+function paintPoints(pts) {
+  const cards = document.querySelectorAll('#lane-matchup .player-card[data-pid]');
+  for (let i = 0; i < cards.length; i++) {
+    const pid = cards[i].getAttribute('data-pid');
+    const el = cards[i].querySelector('.pc-actual-pts');
+    if (el && Object.prototype.hasOwnProperty.call(pts, pid) && pts[pid] != null) el.textContent = fmtPts(pts[pid]);
+  }
+}
+
+// Writes each card's cumulative stat line into .pc-stats (only cards present in `lines`).
+function paintStatLines(lines) {
+  const cards = document.querySelectorAll('#lane-matchup .player-card[data-pid]');
+  for (let i = 0; i < cards.length; i++) {
+    const pid = cards[i].getAttribute('data-pid');
+    if (!lines || !Object.prototype.hasOwnProperty.call(lines, pid)) continue;
+    const el = cards[i].querySelector('.pc-stats');
+    if (el) el.textContent = lines[pid];
+  }
+}
+
+// S3.3: show each changed card's delta in its .pc-ticker for TICKER_MS (a newer delta resets the timer).
+// Cards with no change are left alone, so a running timer is never cut short by an idle poll.
+const TICKER_MS = 10000;
+function paintTickers(tickers) {
+  const cards = document.querySelectorAll('#lane-matchup .player-card[data-pid]');
+  for (let i = 0; i < cards.length; i++) {
+    const pid = cards[i].getAttribute('data-pid');
+    if (!tickers || !Object.prototype.hasOwnProperty.call(tickers, pid)) continue;
+    const el = cards[i].querySelector('.pc-ticker');
+    if (!el) continue;
+    el.textContent = tickers[pid];
+    el.classList.add('visible');
+    if (el._hideTimer) clearTimeout(el._hideTimer);
+    el._hideTimer = setTimeout(function() { el.classList.remove('visible'); }, TICKER_MS);
+  }
+}
+
+// S3.1: clock + score text from each card's own game state; the .pc-situation row exists only once a
+// game is live (created on first use, inserted above .pc-stats; hidden again at halftime/final).
+function paintStates(cfg, games, sts) {
+  const byPid = {};
+  [cfg.own, cfg.opp].forEach(function(side) {
+    if (!side) return;
+    side.players.forEach(function(p) { if (!p.empty && p.playerId) byPid[p.playerId] = p; });
+  });
+  const cards = document.querySelectorAll('#lane-matchup .player-card[data-pid]');
+  for (let i = 0; i < cards.length; i++) {
+    const card = cards[i];
+    const p = byPid[card.getAttribute('data-pid')];
+    const g = (p && games) ? games[p.team] : null;
+    const v = cardView(p, g, (g && g.gameKey && sts) ? sts[g.gameKey] : null);
+    if (!v) continue;
+    const clockEl = card.querySelector('.pc-clock');
+    const scoreEl = card.querySelector('.pc-score');
+    if (clockEl) clockEl.textContent = v.clock;
+    if (scoreEl) scoreEl.textContent = v.score;
+    let sit = card.querySelector('.pc-situation');
+    if (v.situation == null) {
+      if (sit) sit.style.display = 'none';
+    } else {
+      if (!sit) { sit = mkEl('div', 'pc-situation', ''); card.insertBefore(sit, card.querySelector('.pc-field') || card.querySelector('.pc-stats')); }
+      sit.style.display = '';
+      sit.textContent = v.situation;
+    }
+    const dot = card.querySelector('.pc-field-dot');
+    if (dot) {
+      if (v.dotLeft == null) {
+        dot.classList.remove('visible');
+      } else if (!dot.classList.contains('visible')) {
+        // hidden -> visible: jump to position without the slide, so it doesn't sweep in from a stale spot
+        dot.classList.add('no-anim');
+        dot.style.left = v.dotLeft + '%';
+        void dot.offsetWidth;
+        dot.classList.remove('no-anim');
+        dot.classList.add('visible');
+      } else {
+        dot.style.left = v.dotLeft + '%';
+      }
+    }
+  }
+}
+
+// Timer loop around pollOnce. Returns { stop() }. While only WAIT games remain it just sleeps (re-planning
+// locally at most every MAX_SLEEP_MS, no network); stops itself when every relevant game is DONE.
+function startPoller(cfg, games, setStatus) {
+  let stopped = false, timer = null;
+  const state = { cfg: cfg, games: games, statsByGame: {}, statesByGame: {}, finalFetched: {}, lastPoints: {}, lastScoresMs: Date.now() };
+  const deps = {
+    now: function() { return Date.now(); },
+    fetchGames: fetchGames,
+    fetchGameStats: fetchGameStats,
+    fetchGamePlays: fetchGamePlays,
+    paint: function(pts, sts, tk) { if (!stopped) { paintPoints(pts); paintStates(state.cfg, state.games, sts); paintStatLines(computeStatLines(state.cfg, state.statsByGame, state.games)); paintTickers(tk); } }
+  };
+  async function tick() {
+    if (stopped) return;
+    let r;
+    try { r = await pollOnce(state, deps); }
+    catch (e) { r = { nextWakeMs: STATS_POLL_MS, done: false, polled: [], errors: [e.message] }; }
+    if (stopped) return;
+    const t = new Date().toLocaleTimeString('en-US');
+    const head = r.done ? 'All games final' : (r.polled.length ? ('Polled ' + r.polled.length + ' game(s) at ' + t) : 'Waiting for kickoff');
+    setStatus(head + (r.errors.length ? ' | errors: ' + r.errors.join('; ') : ''));
+    if (r.done) return;
+    timer = setTimeout(tick, Math.min(r.nextWakeMs, MAX_SLEEP_MS));
+  }
+  tick();
+  return { stop: function() { stopped = true; if (timer) clearTimeout(timer); } };
+}
+function setScreenVw() {
+  document.documentElement.style.setProperty('--screen-vw', (document.documentElement.clientWidth / 100) + 'px');
+}
+
+function mkEl(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+
+function buildCard(p, cfg, games) {
+  const card = mkEl('div', 'player-card');
+  if (p.playerId) card.setAttribute('data-pid', p.playerId);
+  const nameDiv = mkEl('div', 'pc-name');
+  nameDiv.appendChild(mkEl('span', 'pc-name-text', p.empty ? '(empty)' : formatMatchupName(p)));
+  nameDiv.appendChild(mkEl('span', 'pc-actual-pts', ''));
+  const stateDiv = mkEl('div', 'pc-game-state');
+  stateDiv.appendChild(mkEl('span', 'pc-clock', ''));
+  stateDiv.appendChild(mkEl('span', 'pc-score', p.empty ? '' : pregameText(p.team, games)));
+  stateDiv.appendChild(mkEl('span', 'pc-proj-pts', (!p.empty && p.projStats) ? fmtPts(leagueComputedProj(p.projStats, cfg.scoring)) : ''));
+  card.appendChild(nameDiv);
+  card.appendChild(stateDiv);
+  // No .pc-situation line before kickoff (user, 2026-10-01: cards were too tall, ~7.5 of 9 visible).
+  // S3 will add it when a game is live.
+  const fieldDiv = mkEl('div', 'pc-field');
+  fieldDiv.appendChild(mkEl('div', 'pc-field-dot'));
+  card.appendChild(fieldDiv);
+  card.appendChild(mkEl('div', 'pc-stats', ''));
+  card.appendChild(mkEl('div', 'pc-ticker', ''));
+  return card;
+}
+
+// Cards per side = starters count; --mk auto-fits (1.8 at 9 cards, scaled down for more).
+function renderCards(cfg, games) {
+  const ownEl = document.getElementById('matchup-own');
+  const oppEl = document.getElementById('matchup-opp');
+  ownEl.innerHTML = '';
+  oppEl.innerHTML = '';
+  const n = Math.max(cfg.own.players.length, cfg.opp ? cfg.opp.players.length : 0, 1);
+  document.getElementById('lane-matchup').style.setProperty('--mk', String(Math.min(1.8, 1.8 * 9 / n)));
+  [cfg.own, cfg.opp].forEach(function(side) {
+    if (!side) return;
+    const host = side.side === 'own' ? ownEl : oppEl;
+    side.players.forEach(function(p) { host.appendChild(buildCard(p, cfg, games)); });
+  });
+}
+
+  // ==== END SHARED JS ====
+
+  // ---- receiver glue (NOT part of the shared region) ----
+  let poller = null;
+  let startEpoch = 0;
+  let active = false;
+  let curInfo = null;
+  let resizeBound = false;
+
+  function isNonEmptyStr(v) { return (typeof v === 'string' && v.trim() !== '') || (typeof v === 'number' && isFinite(v)); }
+
+  function normPlayer(p, side, seen) {
+    if (!p || typeof p !== 'object') return null;
+    if (p.empty === true) return { side: side, slot: typeof p.slot === 'string' ? p.slot : '?', playerId: null, empty: true };
+    if (!isNonEmptyStr(p.playerId) || !isNonEmptyStr(p.name) || !isNonEmptyStr(p.pos)) return null;
+    const id = String(p.playerId);
+    if (seen[id]) return null;
+    seen[id] = true;
+    if (p.team != null && !isNonEmptyStr(p.team)) return null;
+    if (p.projStats != null && (typeof p.projStats !== 'object' || Array.isArray(p.projStats))) return null;
+    return { side: side, slot: typeof p.slot === 'string' ? p.slot : '?', playerId: id, name: String(p.name), pos: String(p.pos), team: p.team == null ? null : String(p.team), projStats: p.projStats || null };
+  }
+  function normSide(s, side, seen) {
+    if (!s || typeof s !== 'object' || !Array.isArray(s.players) || s.players.length === 0 || s.players.length > 30) return null;
+    const players = [];
+    for (let i = 0; i < s.players.length; i++) {
+      const np = normPlayer(s.players[i], side, seen);
+      if (!np) return null;
+      players.push(np);
+    }
+    return { side: side, rosterId: s.rosterId == null ? null : s.rosterId, team: (s.team && typeof s.team === 'object') ? { name: String(s.team.name || '') } : null, players: players };
+  }
+  // Validate BEFORE applying anything: a bad CONFIG must never half-update the screen (same rule as the 3-card applyConfig).
+  function validateConfig(cfg) {
+    if (!cfg || typeof cfg !== 'object' || cfg.mode !== 'matchup') return null;
+    if (!isNonEmptyStr(cfg.season)) return null;
+    const wk = parseInt(cfg.week, 10);
+    if (!(isFinite(wk) && wk > 0)) return null;
+    if (!cfg.scoring || typeof cfg.scoring !== 'object' || Array.isArray(cfg.scoring)) return null;
+    const seen = {};
+    const own = normSide(cfg.own, 'own', seen);
+    if (!own) return null;
+    let opp = null;
+    if (cfg.opp != null) {
+      opp = normSide(cfg.opp, 'opp', seen);
+      if (!opp) return null;
+    }
+    return {
+      leagueId: cfg.leagueId == null ? null : String(cfg.leagueId),
+      leagueName: cfg.leagueName == null ? '' : String(cfg.leagueName),
+      season: String(cfg.season), seasonType: 'regular', week: wk,
+      slots: Array.isArray(cfg.slots) ? cfg.slots.map(String) : [],
+      scoring: cfg.scoring, own: own, opp: opp
+    };
+  }
+
+  async function start(cfg) {
+    const epoch = ++startEpoch;
+    if (poller) { poller.stop(); poller = null; }
+    active = true;
+    curInfo = { week: cfg.week, leagueId: cfg.leagueId, rosterId: cfg.own.rosterId };
+    document.body.classList.add('matchup-mode');
+    setScreenVw();
+    if (!resizeBound) { resizeBound = true; window.addEventListener('resize', setScreenVw); }
+    document.getElementById('matchup-own').innerHTML = '';
+    document.getElementById('matchup-opp').innerHTML = '';
+    let games = null;
+    while (epoch === startEpoch && games === null) {
+      try { games = await fetchGames(cfg.season, cfg.week); }
+      catch (e) {
+        console.warn('matchup: /scores failed, retrying in 5s', e);
+        await new Promise(function(res) { setTimeout(res, 5000); });
+      }
+    }
+    if (epoch !== startEpoch) return; // superseded by a newer CONFIG or stop()
+    renderCards(cfg, games);
+    poller = startPoller(cfg, games, function(msg) { console.log('[matchup] ' + msg); });
+  }
+  function stop() {
+    startEpoch++;
+    if (poller) { poller.stop(); poller = null; }
+    active = false;
+    curInfo = null;
+    document.body.classList.remove('matchup-mode');
+  }
+  function applyConfig(msg) {
+    const cfg = validateConfig(msg);
+    if (!cfg) { console.warn('matchup CONFIG rejected, keeping current state', msg); return false; }
+    start(cfg).catch(function(e) { console.error('matchup start failed', e); });
+    return true;
+  }
+  function info() {
+    return { active: active, week: curInfo ? curInfo.week : null, leagueId: curInfo ? curInfo.leagueId : null, rosterId: curInfo ? curInfo.rosterId : null };
+  }
+  return { applyConfig: applyConfig, stop: stop, info: info, validateConfig: validateConfig, start: start };
+  })();
+  </script>
   <script>
     const context = cast.framework.CastReceiverContext.getInstance();
     const playerManager = context.getPlayerManager();
@@ -369,6 +1297,7 @@
     }
 
     async function pollPlayerCard() {
+      if (document.body.classList.contains('matchup-mode')) return; // S4.1: matchup mode owns the screen
       const myEpoch = pcConfigEpoch; // see pcConfigEpoch: discard this poll if the config changes mid-flight
       try {
         const [playsRes, statsRes] = await Promise.all([
@@ -545,6 +1474,7 @@
         console.warn('CONFIG rejected (duplicate playerId in players[]), keeping current config', cfg);
         return false;
       }
+      if (window.MatchupMode) window.MatchupMode.stop(); // S4.1: a valid 3-card CONFIG leaves matchup mode
       const sameTarget = String(cfg.gameId) === PC_GAME_ID
         && JSON.stringify(newPlayers) === JSON.stringify(PC_PLAYERS);
       PC_GAME_ID = String(cfg.gameId);
@@ -594,12 +1524,19 @@
         const msg = event.data;
         if (!msg || typeof msg !== 'object') return;
         if (msg.type === 'CONFIG') {
-          applyConfig(msg);
+          if (msg.mode === 'matchup' && window.MatchupMode) {
+            pcConfigEpoch++; // S4.1: discard any in-flight single-game poll
+            window.MatchupMode.applyConfig(msg);
+          } else {
+            applyConfig(msg);
+          }
         } else if (msg.type === 'STATE_REQUEST') {
           // Reply to THIS sender only: sendCustomMessage is documented as per-sender, no broadcast.
           context.sendCustomMessage(CAST_NAMESPACE, event.senderId, {
             type: 'STATE_SYNC',
-            hasConfig: pcHasConfig,
+            hasConfig: pcHasConfig || !!(window.MatchupMode && window.MatchupMode.info().active),
+            mode: (window.MatchupMode && window.MatchupMode.info().active) ? 'matchup' : 'players',
+            matchup: window.MatchupMode ? window.MatchupMode.info() : null,
             config: currentConfig()
           });
         }
