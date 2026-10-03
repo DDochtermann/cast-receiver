@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8" />
 <title>stream-overlay receiver</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&display=swap" />
 <style>
   html, body { margin: 0; padding: 0; background: #000; height: 100%; overflow: hidden; font-family: system-ui, sans-serif; }
   .stage { position: relative; width: 100vw; height: 100vh; }
@@ -77,15 +80,44 @@
   /* ---- S4.1 matchup mode: region between the BEGIN/END markers is generated from matchup.html ---- */
   /* BEGIN SHARED CSS */
 :root { --screen-vw: 1vw; }
+  /* Bottom-middle box (2026-10-03): empty placeholder card peering in from the bottom edge of the screen, centered. 1100 x 30 at the 1920 reference, screen-scaled like the cards; card look (same bg), rounded TOP corners only (~12 card units). No content yet. */
+  #bottom-box {
+    position: absolute;
+    left: 50%;
+    bottom: 0;
+    transform: translateX(-50%);
+    width: calc(1100 / 1920 * (100 * var(--screen-vw)));
+    height: calc(30 / 1920 * (100 * var(--screen-vw)));
+    background: rgba(6, 12, 24, 0.72);
+    border-radius: calc(18.7 / 1920 * (100 * var(--screen-vw))) calc(18.7 / 1920 * (100 * var(--screen-vw))) 0 0;
+    box-sizing: border-box;
+    pointer-events: none;
+  }
+  /* ---- Matchup card columns (2026-10-01, test-only layout) -- each team's 9 cards are
+         stacked vertically (QB first, DEF last) flush against the left/right screen edges.
+         ONE scale knob: --mk (default 1.8). --u is "one 1920-px unit scaled by --mk and by the
+         screen width"; every card dimension below is calc(N * var(--u)), where N is the old
+         per-1920 value, so changing --mk rescales the whole card (and its column) together.
+         Column width = 95 units (the old per-card width at 18-across), height is content-driven.
+         padding-top leaves room for the top card's above-card ticker (it floats at bottom:100%
+         of its own card) so #lane-strip's overflow:hidden doesn't clip it. ---- */
   #lane-matchup {
     --mk: 1.8;
+    /* Spacing knobs (2026-10-01, restored after the bottom-row condensing stripped them), all in
+       1920-units x --u: --pad-y/--pad-x = padding inside each card, --gap = space between stacked
+       cards (also the room the above-card ticker floats in), --stats-pad = space under the
+       stats divider. Total column height must stay < 1080 units-of-screen: if cards overflow
+       the screen bottom, lower --gap/--pad-y or --mk. */
     --pad-y: 5;
     --pad-x: 7;
     --gap: 5;
     --stats-pad: 3;
     --u: calc(var(--mk) / 1920 * (100 * var(--screen-vw)));
     position: absolute;
-    top: 0; bottom: 0; left: 0; right: 0;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    right: 0;
     display: flex;
     flex-direction: row;
     justify-content: space-between;
@@ -125,8 +157,19 @@
     align-items: baseline;
     gap: calc(4 * var(--u));
   }
-  #lane-matchup .player-card .pc-name .pc-name-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-  #lane-matchup .player-card .pc-name .pc-actual-pts { flex: 0 0 auto; }
+  #lane-matchup .player-card .pc-name .pc-name-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+  /* Actual fantasy points (2026-09-23): top-right on the name line, same font/size/weight
+     as the name itself (color/size/weight inherited from .pc-name, no separate rule needed
+     for those properties -- only flex-shrink to keep it from squeezing the name text when
+     space is tight). */
+  #lane-matchup .player-card .pc-name .pc-actual-pts {
+    flex: 0 0 auto;
+  }
   #lane-matchup .player-card .pc-game-state {
     font-size: calc(7.865 * var(--u));
     color: #ccc;
@@ -135,7 +178,11 @@
     flex-direction: row;
     justify-content: space-between;
   }
-  #lane-matchup .player-card .pc-game-state .pc-proj-pts { flex: 0 0 auto; }
+  /* Projected fantasy points (2026-09-23): right-justified on the score/game-state line,
+     bare number, same color/size as the rest of that line (inherits .pc-game-state). */
+  #lane-matchup .player-card .pc-game-state .pc-proj-pts {
+    flex: 0 0 auto;
+  }
   #lane-matchup .player-card .pc-situation {
     font-size: calc(7.865 * var(--u));
     color: #aaa;
@@ -150,12 +197,17 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    min-height: 1em;
   }
-  /* S3.2 field-position dot (ported from debug-cards): .pc-field is a zero-height wrapper right above
-     .pc-stats (whose border-top IS the field line); the dot sits on its top edge so .pc-stats'
-     overflow:hidden can't clip it. left% is set in JS. */
-  #lane-matchup .player-card .pc-field { position: relative; height: 0; width: 100%; }
+  /* Field-position dot (2026-10-01, per user): the divider line above .pc-stats doubles as a
+     mini field. .pc-field is a zero-height, full-content-width wrapper sitting right above
+     .pc-stats (whose border-top IS the line) -- the dot is positioned on its top edge instead
+     of inside .pc-stats because .pc-stats has overflow:hidden and would clip it. left% (set in
+     JS) = progress along the line; centered on the line via translate(-50%,-50%). */
+  #lane-matchup .player-card .pc-field {
+    position: relative;
+    height: 0;
+    width: 100%;
+  }
   #lane-matchup .player-card .pc-field-dot {
     position: absolute;
     top: 0.5px;
@@ -169,10 +221,17 @@
     transition: left 0.3s ease, opacity 0.2s ease;
     pointer-events: none;
   }
-  #lane-matchup .player-card .pc-field-dot.visible { opacity: 1; }
-  #lane-matchup .player-card .pc-field-dot.no-anim { transition: none; }
-  /* S3.3 ticker (ported from debug-cards): signed fantasy-points delta, OUTSIDE the card on the name/points
-     line (right of own-column cards, left of opp-column cards), dark bg so the green text stays readable. */
+  #lane-matchup .player-card .pc-field-dot.visible {
+    opacity: 1;
+  }
+  #lane-matchup .player-card .pc-field-dot.no-anim {
+    transition: none;
+  }
+  /* Ticker (2026-10-01, per user): the green new-points text now sits OUTSIDE the card, just to
+     the right of it (left of it on the opp column, which is flush to the right screen edge),
+     on the name / fantasy-points line, and shows only the signed FANTASY-POINTS delta of the
+     play (e.g. +1.90), not stat names. Absolutely positioned off the card's own edge, so it
+     takes no space inside the card. Only Skattebo/Likely (own column) ever get one live. */
   #lane-matchup .player-card .pc-ticker {
     position: absolute;
     left: 100%;
@@ -187,10 +246,197 @@
     opacity: 0;
     transition: opacity 0.25s ease;
     white-space: nowrap;
-    pointer-events: none;
   }
-  #lane-matchup .matchup-side.opp .player-card .pc-ticker { left: auto; right: 100%; margin-left: 0; margin-right: calc(4 * var(--u)); }
-  #lane-matchup .player-card .pc-ticker.visible { opacity: 1; }
+  #lane-matchup .matchup-side.opp .player-card .pc-ticker {
+    left: auto;
+    right: 100%;
+    margin-left: 0;
+    margin-right: calc(4 * var(--u));
+  }
+  #lane-matchup .player-card .pc-ticker.visible {
+    opacity: 1;
+  }
+  /* ---- Card redesign v1 (2026-10-02, per user mockup; first pass, user will tweak) ----
+     Overrides the earlier #lane-matchup card rules (same specificity, later wins). Knobs:
+     --mk (overall scale; 1.8 -> 1.4 so 9 reserved slots fit the 1080-tall screen), --gap (space
+     between slots), --slot-h-u (RESERVED slot height in 1920-units x --u = height of a LIVE
+     card; a measured-by-eye guess, raise it if a live card overflows its slot). Card = flex row
+     [tab | body]; the right (opp) column mirrors it (row-reverse). Position colors come from
+     --pos-color (set per card in JS from POSITION_COLORS). */
+/* Gap (top edge + between stacked slots) = 2px at the 1920 reference, independent of --mk: --gap is in --u units, so it is 2 / --mk. --mk 1.54 fills the 1080 height: 9 x 76u x 1.54 + 10 x 2px = ~1073px at 1920 wide (my estimate, unmeasured). */
+#lane-matchup { --mk: 1.56; --gap: calc(0.5 / var(--mk)); --slot-h-u: 76; --pos-color: #999; }
+#lane-matchup .matchup-side { width: calc(187 * var(--u)); }
+/* Live card (game in progress; .collapsed = PRE/FINAL, HALFTIME stays live): 1px position-colored border, drawn on every side EXCEPT the screen-edge side (left col: no left border; right col: no right border). All cards carry the same transparent 1px border so going live/final never shifts layout; live just colors it. */
+/* Batch 9: the live-card border above was REMOVED. Live now only recolors the tab bars (--bar-color; pre/post-game bars stay plain gray #888) and pins the card to the top of its slot (collapsed cards are centered in the slot). */
+#lane-matchup .player-card:not(.collapsed) { --bar-color: var(--pos-color); align-self: flex-start; }
+#lane-matchup .pc-slot { height: calc(var(--slot-h-u) * var(--u)); flex: 0 0 auto; display: flex; }
+#lane-matchup .player-card {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  padding: 0;
+  background: rgba(6, 12, 24, 0.72);
+  border: 1px solid transparent;
+  border-left: 0;
+  border-radius: 0 calc(12 * var(--u)) calc(12 * var(--u)) 0;
+}
+#lane-matchup .matchup-side.opp .player-card {
+  flex-direction: row-reverse;
+  border: 1px solid transparent;
+  border-right: 0;
+  border-radius: calc(12 * var(--u)) 0 0 calc(12 * var(--u));
+}
+#lane-matchup .pc-tab {
+  flex: 0 0 auto;
+  width: calc(11 * var(--u));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  box-sizing: border-box;
+  margin: calc(4 * var(--u)) 0;
+  padding: calc(1 * var(--u)) 0;
+  border-right: 1px solid var(--bar-color, #888);
+}
+#lane-matchup .matchup-side.opp .pc-tab {
+  border-right: none;
+  border-left: 1px solid var(--bar-color, #888);
+}
+/* Tab text order is top-to-bottom #num, TEAM, POS on BOTH columns (right column no longer reversed). */
+/* Actual fantasy points value only (not the projection): larger than the name (11.495u). .pc-name is baseline-aligned, so it stays on the name baseline. */
+#lane-matchup .player-card .pc-name .pc-actual-pts { font-size: calc(14.4 * var(--u)); }
+#lane-matchup .pc-tab span {
+  writing-mode: vertical-rl;
+  font-size: calc(7.4 * var(--u));
+  font-weight: 700;
+  line-height: 1;
+  color: #fff;
+  white-space: nowrap;
+}
+#lane-matchup .pc-tab .pc-tab-pos { color: var(--pos-color); font-weight: 700; }
+/* Left (own) column: vertical text reads bottom-to-top (rotate 180); element ORDER matches the right column (#num top, TEAM, POS bottom) so the two columns mirror. */
+#lane-matchup .matchup-side:not(.opp) .pc-tab span { transform: rotate(180deg); }
+#lane-matchup .player-card.collapsed .pc-tab-num { display: none; }
+/* Collapsed (FINAL/PRE/HALFTIME): the colored tab line shrinks to just the text (mockup), centered in the card. */
+#lane-matchup .player-card.collapsed .pc-tab { align-self: stretch; justify-content: space-between; gap: calc(4 * var(--u)); margin: calc(4 * var(--u)) 0; padding: calc(2 * var(--u)) 0; }
+#lane-matchup .pc-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: calc(5 * var(--u)) calc(7 * var(--u));
+}
+#lane-matchup .matchup-side.opp .player-card .pc-name { flex-direction: row-reverse; }
+#lane-matchup .matchup-side.opp .player-card .pc-name .pc-name-text { text-align: right; }
+#lane-matchup .player-card .pc-game-state { justify-content: flex-start; gap: calc(8 * var(--u)); margin-bottom: calc(1 * var(--u)); }
+#lane-matchup .player-card .pc-game-state .pc-clock:empty { display: none; } /* empty clock (PRE/FINAL) must not leave a flex gap => no indent on the W/L/FINAL line */
+#lane-matchup .player-card .pc-game-state .pc-proj-pts { margin-left: auto; }
+#lane-matchup .matchup-side.opp .player-card .pc-game-state .pc-proj-pts { order: 0; margin-left: 0; margin-right: auto; }
+#lane-matchup .matchup-side.opp .player-card .pc-game-state .pc-clock { order: 1; }
+#lane-matchup .matchup-side.opp .player-card .pc-game-state .pc-score { order: 2; }
+#lane-matchup .player-card .pc-stats { border-top: none; padding-top: calc(2 * var(--u)); line-height: 1.25; }
+/* Active (non-collapsed) cards always reserve the full 4th (stat) line, even when the player has no stats yet. */
+#lane-matchup .player-card:not(.collapsed) .pc-stats { min-height: 1.25em; }
+/* Trail row (live cards only; .collapsed hides it): track = the field, fill = down-colored trail
+   (brightest at the ball, fading toward the own goal line), marker = team logo, pill = the old
+   .pc-situation text (down & distance / On Defense / End Zone / special label). */
+#lane-matchup .pc-trail { position: relative; height: calc(22 * var(--u)); margin: 0 0 calc(1 * var(--u)); }
+#lane-matchup .player-card.collapsed .pc-trail { display: none; }
+#lane-matchup .pc-track {
+  position: absolute; left: 0; right: 0; top: 50%;
+  height: calc(6.5 * var(--u));
+  transform: translateY(-50%);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: calc(6.5 * var(--u));
+  box-sizing: border-box;
+}
+#lane-matchup .pc-fill {
+  position: absolute; top: 50%;
+  height: calc(4 * var(--u));
+  transform: translateY(-50%);
+  border-radius: calc(4 * var(--u));
+  width: 0;
+  transition: width 0.3s ease;
+  pointer-events: none;
+}
+#lane-matchup .pc-fill.own { left: 0; }
+#lane-matchup .pc-fill.opp { right: 0; }
+#lane-matchup .pc-marker {
+  position: absolute; top: 50%; left: 0;
+  width: calc(22 * var(--u)); height: calc(22 * var(--u));
+  transform: translate(-50%, -50%);
+  box-sizing: border-box;
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0;
+  transition: left 0.3s ease, opacity 0.2s ease;
+  z-index: 2;
+  pointer-events: none;
+}
+#lane-matchup .pc-marker.visible { opacity: 1; }
+#lane-matchup .pc-marker .pc-logo { width: 75%; height: 75%; object-fit: contain; position: relative; z-index: 1; }
+#lane-matchup .pc-marker .pc-logo-fallback { display: none; font-size: calc(8.5 * var(--u)); font-weight: 700; color: #fff; position: relative; z-index: 1; }
+/* Marker body = ONE inline-SVG shape (circle + pointer as a single path: dark fill, 1px light outline, so the tip is part of the same outlined shape). viewBox 0 0 20 14: 1 unit = 1.0833u; circle r 6 (= the 13u marker box), center x=7 (right-pointing, tip x=19) / x=13 (left-pointing, tip x=1) / x=7 (plain circle). */
+#lane-matchup .pc-marker svg { position: absolute; top: calc(-1.833 * var(--u)); width: calc(36.667 * var(--u)); height: calc(25.667 * var(--u)); overflow: visible; z-index: 0; pointer-events: none; }
+#lane-matchup .pc-marker svg path, #lane-matchup .pc-marker svg circle { fill: #0b1630; stroke: rgba(255, 255, 255, 0.45); stroke-width: 1; vector-effect: non-scaling-stroke; display: none; }
+#lane-matchup .pc-marker.dir-right svg { left: calc(-1.833 * var(--u)); }
+#lane-matchup .pc-marker.dir-right svg .shape-r { display: inline; }
+#lane-matchup .pc-marker.dir-left svg { left: calc(-12.833 * var(--u)); }
+#lane-matchup .pc-marker.dir-left svg .shape-l { display: inline; }
+#lane-matchup .pc-marker.plain svg { left: calc(-1.833 * var(--u)); }
+#lane-matchup .pc-marker.plain svg .shape-r, #lane-matchup .pc-marker.plain svg .shape-l { display: none; }
+#lane-matchup .pc-marker.plain svg .shape-c { display: inline; }
+#lane-matchup .player-card .pc-situation {
+  position: absolute; top: 50%;
+  transform: translateY(-50%) scaleX(var(--pill-sx));
+  margin: 0;
+  padding: calc(1.8 * var(--u)) calc(6 * var(--u));
+  font-size: calc(8.5 * var(--u));
+  font-style: normal;
+  color: #c4c4c4;
+  background: rgba(6, 12, 24, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: calc(4 * var(--u));
+  white-space: nowrap;
+  z-index: 1;
+  transition: left 0.3s ease, right 0.3s ease;
+}
+#lane-matchup .player-card .pc-situation.centered { transform: translate(-50%, -50%) scaleX(var(--pill-sx)); }
+/* ---- Batch 8 (2026-10-03) ---- knobs: --collapse-u (collapsed card is this many units narrower than live; = the trail row's vertical collapse, 22u row + 1u margin), --pill-sx (horizontal condense of the down&distance pill; 1 = none). */
+#lane-matchup { --collapse-u: 23; --pill-sx: 0.88; }
+#lane-matchup .player-card.collapsed { width: calc((100% - (var(--collapse-u) * var(--u))) * 0.8); align-self: center; } /* batch 9: a further 20% narrower (x0.8) and vertically centered in the reserved slot */
+#lane-matchup .matchup-side.opp .player-card.collapsed { margin-left: auto; }
+/* Stat line: no ellipsis; an overflowing line scrolls as a looping marquee (JS adds .scrolling + --marq-dist/--marq-dur; two identical segments, pause at the start of each loop). */
+#lane-matchup .player-card .pc-stats { text-overflow: clip; }
+#lane-matchup .pc-stats-inner { display: inline-block; white-space: nowrap; }
+#lane-matchup .pc-stats-seg { display: inline-block; }
+/* Stat-line scroll (batch 10): ping-pong driven by the Web Animations API in refitStatLine (rest -> scroll to end -> hold -> scroll back); no CSS animation. */
+/* Point delta: one .pc-delta per scoring play, spawned over the fantasy-points total (name line, inner edge of the body), same bg alpha as the card. 5s: fade in 0-1s (0-20%), rise 1.5 lines (1.5 x 1.2em) over 0-5s, fade out 4-5s (80-100%). The old outside-the-card .pc-ticker is retired (kept as an inert element). */
+#lane-matchup .pc-body { position: relative; }
+#lane-matchup .player-card .pc-ticker { display: none !important; }
+#lane-matchup .player-card .pc-delta {
+  position: absolute;
+  top: calc(3 * var(--u));
+  right: calc(3 * var(--u));
+  padding: calc(2 * var(--u)) calc(4 * var(--u));
+  background: rgba(6, 12, 24, 0.72);
+  border-radius: calc(3 * var(--u));
+  font-size: calc(11.495 * var(--u));
+  font-weight: 700;
+  color: #4ade80;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 5;
+  opacity: 0;
+  animation: pc-delta-float 5s linear forwards;
+}
+#lane-matchup .matchup-side.opp .player-card .pc-delta { right: auto; left: calc(3 * var(--u)); }
+@keyframes pc-delta-float {
+  0% { opacity: 0; transform: translateY(0); }
+  2% { opacity: 1; }
+  80% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-3em); } /* batch 9: fade-in 0-0.1s (2%), rise 1.666x the old 1.8em */
+}
+#lane-matchup .no-anim { transition: none !important; }
+/* Chakra Petch (Google Fonts <link> in <head>), all card text uppercase. */
+#lane-matchup { font-family: 'Chakra Petch', sans-serif; text-transform: uppercase; }
   /* END SHARED CSS */
   /* receiver-only: hidden unless body.matchup-mode; sits above the video like .player-cards; resets the old
      top-level .pc-ticker props (margin-top/min-height/overflow) that the shared ticker rule does not override */
@@ -1382,12 +1628,219 @@ async function pollOnce(state, deps) {
 }
 
 // ---- DOM (browser only) ----
+// ---------------------------------------------------------------------------
+// Card redesign port (2026-10-03, from debug-cards.html): each card sits in a reserved .pc-slot as
+// [outer-edge position-colored .pc-tab | .pc-body]. Body = name + points, state line, field-trail row
+// (track, down-colored fill, team-logo ball marker, down&distance pill), stat line. Cards start
+// .collapsed (pregame / FINAL: no trail row); LIVE and HALFTIME use the full layout.
+// ---------------------------------------------------------------------------
+const POSITION_COLORS = { QB: '#e6145a', RB: '#14baa4', WR: '#3c91f5', TE: '#fa9637', DEF: '#9b3ffa' };
+// Trail color by down: yellowgreen / yelloworange / orangered / redpurple.
+const DOWN_COLORS = { 1: '#9acd32', 2: '#ffb000', 3: '#ff4500', 4: '#c71585' };
+function teamLogoUrl(abbr) {
+  return 'https://a.espncdn.com/i/teamlogos/nfl/500/' + String(abbr).toLowerCase() + '.png';
+}
+
+// Stat line: no ellipsis; an overflowing line ping-pongs (rest -> scroll to end -> hold -> scroll back) via the
+// Web Animations API. Re-measures only when the text or the box width changed, so repaints don't restart it.
+var STAT_SCROLL_PX_PER_S = 11.25, STAT_REST_S = 10, STAT_HOLD_S = 5;
+function setStatLine(el, text) {
+  el._statText = text;
+  refitStatLine(el);
+}
+function refitStatLine(el) {
+  const text = el._statText || '';
+  const key = text + '|' + el.clientWidth;
+  if (el._statKey === key) return;
+  el._statKey = key;
+  if (el._statAnim) { el._statAnim.cancel(); el._statAnim = null; }
+  el.classList.remove('scrolling');
+  el.textContent = '';
+  const inner = document.createElement('span');
+  inner.className = 'pc-stats-inner';
+  const seg = document.createElement('span');
+  seg.className = 'pc-stats-seg';
+  seg.textContent = text;
+  inner.appendChild(seg);
+  el.appendChild(inner);
+  const boxW = el.clientWidth;
+  if (boxW > 0 && seg.offsetWidth > boxW + 0.5) {
+    el.classList.add('scrolling');
+    const dist = seg.offsetWidth - boxW;
+    const legS = dist / STAT_SCROLL_PX_PER_S;
+    const total = STAT_REST_S + legS + STAT_HOLD_S + legS;
+    if (inner.animate) {
+      el._statAnim = inner.animate([
+        { transform: 'translateX(0)', offset: 0 },
+        { transform: 'translateX(0)', offset: STAT_REST_S / total },
+        { transform: 'translateX(-' + dist + 'px)', offset: (STAT_REST_S + legS) / total },
+        { transform: 'translateX(-' + dist + 'px)', offset: (STAT_REST_S + legS + STAT_HOLD_S) / total },
+        { transform: 'translateX(0)', offset: 1 }
+      ], { duration: total * 1000, iterations: Infinity, easing: 'linear' });
+    }
+  }
+}
+function refitAllStatLines() {
+  const els = document.querySelectorAll('#lane-matchup .pc-stats');
+  for (let i = 0; i < els.length; i++) {
+    if (els[i]._statText !== undefined) { els[i]._statKey = null; refitStatLine(els[i]); }
+  }
+}
+if (typeof window !== 'undefined') {
+  window.addEventListener('resize', refitAllStatLines);
+  window.addEventListener('load', refitAllStatLines);
+  if (typeof document !== 'undefined' && document.fonts && document.fonts.ready) document.fonts.ready.then(refitAllStatLines);
+}
+
+// Point delta: a fresh element per scoring play over the fantasy-points total (CSS keyframes do the 5s fade/rise).
+function spawnPointDelta(card, text) {
+  const body = card.querySelector('.pc-body');
+  if (!body) return;
+  const el = mkEl('div', 'pc-delta', text);
+  body.appendChild(el);
+  setTimeout(function() { if (el.parentNode) el.parentNode.removeChild(el); }, 5200);
+}
+
+// Down & distance pill beside the ball marker, on the side FACING MIDFIELD (ball in own territory or on defense ->
+// ahead of the marker; past the 50 -> behind it, over the trail; exactly 50 = ahead). Returns the offset (units) from
+// the marker center to the pill's marker-facing edge (used for the trail gradient).
+function placePill(card, mode, shownPct) {
+  const pill = card._pill;
+  pill.style.left = '';
+  pill.style.right = '';
+  pill.style.paddingLeft = '';
+  pill.style.paddingRight = '';
+  pill.style.transformOrigin = '';
+  if (mode === 'center') {
+    pill.classList.add('centered');
+    pill.style.left = '50%';
+    return;
+  }
+  pill.classList.remove('centered');
+  const dirRight = (card._side === 'own'); // on-screen direction of offense travel
+  const rightOfMarker = (mode === 'ahead') ? dirRight : !dirRight;
+  pill.style.transformOrigin = rightOfMarker ? 'left center' : 'right center'; // scaleX condense keeps the marker-facing edge fixed
+  const plainMarker = card._marker.classList.contains('plain');
+  const EXTEND_U = 5; // pill rectangle extends this many units under the (higher z-index) marker
+  const offU = (plainMarker ? 10 : (mode === 'ahead' ? 13.5 : 10)) - EXTEND_U;
+  const facePad = 6 + EXTEND_U; // base horizontal padding is 6u
+  if (rightOfMarker) {
+    pill.style.left = 'calc(' + shownPct + '% + (' + offU + ' * var(--u)))';
+    pill.style.paddingLeft = 'calc(' + facePad + ' * var(--u))';
+  } else {
+    pill.style.right = 'calc(' + (100 - shownPct) + '% + (' + offU + ' * var(--u)))';
+    pill.style.paddingRight = 'calc(' + facePad + ' * var(--u))';
+  }
+  return offU;
+}
+
+// Fraction of the 60-minute game still to play, from a derived state: Q<n> <m>:<ss> clock, 0.5 at halftime, null
+// when FINAL / no clock (=> the static pregame projection stays).
+function liveFraction(st) {
+  if (!st || st.gamestate === 'FINAL') return null;
+  if (st.gamestate === 'HALFTIME') return 0.5;
+  const m = /^Q(\d+)\s+(\d+):(\d+)$/.exec(String(st.clockStr || ''));
+  if (!m) return null;
+  const q = Number(m[1]);
+  const min = Number(m[2]);
+  const sec = Number(m[3]);
+  if (q > 4) return 0;
+  const elapsed = (q - 1) * 15 + (15 - (min + sec / 60));
+  return Math.min(1, Math.max(0, (60 - elapsed) / 60));
+}
+// Projection slot: static pregame projection until the game is live; while live (incl. halftime) = current league
+// points + pregame projection x fraction of the game remaining. >=20% under the original => soft red, >=20% over =>
+// soft green. Needs card._actual (set by paintPoints) and card._frac (set by paintStates).
+function paintProjection(card) {
+  const el = card._projEl;
+  if (!el) return;
+  el.style.color = '';
+  if (card._proj == null) return;
+  const proj = card._proj;
+  el.textContent = fmtPts(proj);
+  if (card._frac == null || card._actual == null) return;
+  const est = card._actual + proj * card._frac;
+  el.textContent = fmtPts(est);
+  if (proj > 0) {
+    if (est <= proj * 0.8) el.style.color = '#f28b82';
+    else if (est >= proj * 1.2) el.style.color = '#81c995';
+  }
+}
+
+// Trail row for one card (port of debug-cards updateFieldDot, driven by this card's own game state `st`): marker =
+// ball position along the track, fill = trail from the own goal line to the ball, pill = situation text. Non-field
+// looks (HALFTIME, kickoff/extra point, defense, no ball data) = plain circle pinned at the own-goal end + pill beside
+// it, no trail. No state / FINAL: collapsed card, trail not rendered.
+function paintTrail(card, p, st) {
+  const marker = card._marker;
+  const fill = card._fill;
+  if (!marker || !fill) return;
+  const isOwn = (card._side === 'own');
+  const wasVisible = marker.classList.contains('visible');
+  if (!st || st.gamestate === 'FINAL') {
+    marker.classList.remove('visible');
+    fill.style.width = '0';
+    return;
+  }
+  let pct = null; // yards from this card's own goal line (0-100)
+  let mode = 'center';
+  let defense = false;
+  if (st.gamestate === 'HALFTIME' || st.specialLabel) {
+    pct = 0; defense = true; mode = 'ahead';
+  } else if (st.possession && st.possession !== p.team) {
+    pct = 0; defense = true; mode = 'ahead';
+  } else if (st.possession === p.team) {
+    if (st.endZone) {
+      pct = 100;
+    } else if (st.fieldTeam && st.fieldYards != null && isFinite(Number(st.fieldYards))) {
+      pct = (st.fieldTeam === p.team) ? Number(st.fieldYards) : 100 - Number(st.fieldYards);
+    }
+    if (pct !== null) mode = (pct > 50) ? 'behind' : 'ahead';
+  }
+  if (pct === null) { pct = 0; defense = true; mode = 'ahead'; }
+  pct = Math.max(0, Math.min(100, pct));
+  const shownPct = 5 + 0.9 * (isOwn ? pct : 100 - pct); // ball travels 5%-95% of the track
+  const downColor = DOWN_COLORS[st.down] || DOWN_COLORS[1];
+  const gradDir = isOwn ? 'to right' : 'to left';
+  const els = [marker, fill, card._pill];
+  if (!wasVisible) els.forEach(function(e) { e.classList.add('no-anim'); }); // jump, don't sweep in
+  marker.classList.toggle('plain', defense);
+  marker.style.left = shownPct + '%';
+  fill.style.width = defense ? '0' : (5 + 0.9 * pct) + '%'; // trail ends at the ball
+  const offU = placePill(card, mode, shownPct);
+  // Ball past midfield (mode 'behind'): the pill sits ON the trail and hides its bright end, so the gradient reaches
+  // full color at the pill's yard-0-facing edge instead (pixel stops measured at paint time; falls back to the plain
+  // gradient if anything is unmeasurable).
+  let grad = 'linear-gradient(' + gradDir + ', rgba(255,255,255,0), ' + downColor + ')';
+  if (!defense && mode === 'behind' && offU != null) {
+    const uPx = marker.offsetWidth / 22; // marker box is 22u wide
+    const trailW = fill.parentNode.clientWidth;
+    const sx = parseFloat(getComputedStyle(card).getPropertyValue('--pill-sx')) || 1;
+    const pillW = card._pill.offsetWidth * sx;
+    const fillPx = trailW * (5 + 0.9 * pct) / 100;
+    const stopPx = fillPx - (offU * uPx + pillW);
+    if (uPx > 0 && trailW > 0 && pillW > 0 && stopPx > 0) {
+      grad = 'linear-gradient(' + gradDir + ', rgba(255,255,255,0) 0px, ' + downColor + ' ' + stopPx.toFixed(1) + 'px, ' + downColor + ' 100%)';
+    }
+  }
+  fill.style.background = grad;
+  if (!wasVisible) {
+    void marker.offsetWidth;
+    els.forEach(function(e) { e.classList.remove('no-anim'); });
+    marker.classList.add('visible');
+  }
+}
+
 function paintPoints(pts) {
   const cards = document.querySelectorAll('#lane-matchup .player-card[data-pid]');
   for (let i = 0; i < cards.length; i++) {
     const pid = cards[i].getAttribute('data-pid');
     const el = cards[i].querySelector('.pc-actual-pts');
-    if (el && Object.prototype.hasOwnProperty.call(pts, pid) && pts[pid] != null) el.textContent = fmtPts(pts[pid]);
+    if (el && Object.prototype.hasOwnProperty.call(pts, pid) && pts[pid] != null) {
+      el.textContent = fmtPts(pts[pid]);
+      cards[i]._actual = Number(pts[pid]);
+      paintProjection(cards[i]);
+    }
   }
 }
 
@@ -1397,30 +1850,23 @@ function paintStatLines(lines) {
   for (let i = 0; i < cards.length; i++) {
     const pid = cards[i].getAttribute('data-pid');
     if (!lines || !Object.prototype.hasOwnProperty.call(lines, pid)) continue;
-    const el = cards[i].querySelector('.pc-stats');
-    if (el) el.textContent = lines[pid];
+    if (cards[i]._stats) setStatLine(cards[i]._stats, lines[pid]);
   }
 }
 
-// S3.3: show each changed card's delta in its .pc-ticker for TICKER_MS (a newer delta resets the timer).
-// Cards with no change are left alone, so a running timer is never cut short by an idle poll.
-const TICKER_MS = 10000;
+// Each changed card's signed fantasy-points delta floats over its points total (spawnPointDelta); cards with no
+// change are left alone.
 function paintTickers(tickers) {
   const cards = document.querySelectorAll('#lane-matchup .player-card[data-pid]');
   for (let i = 0; i < cards.length; i++) {
     const pid = cards[i].getAttribute('data-pid');
     if (!tickers || !Object.prototype.hasOwnProperty.call(tickers, pid)) continue;
-    const el = cards[i].querySelector('.pc-ticker');
-    if (!el) continue;
-    el.textContent = tickers[pid];
-    el.classList.add('visible');
-    if (el._hideTimer) clearTimeout(el._hideTimer);
-    el._hideTimer = setTimeout(function() { el.classList.remove('visible'); }, TICKER_MS);
+    if (tickers[pid]) spawnPointDelta(cards[i], String(tickers[pid]));
   }
 }
 
-// S3.1: clock + score text from each card's own game state; the .pc-situation row exists only once a
-// game is live (created on first use, inserted above .pc-stats; hidden again at halftime/final).
+// Per card, from its own game state: clock + score text, the situation pill + trail row, the collapsed/live layout,
+// and the live projection. No state yet (pregame) leaves the card as built (collapsed, pregame text).
 function paintStates(cfg, games, sts) {
   const byPid = {};
   [cfg.own, cfg.opp].forEach(function(side) {
@@ -1432,35 +1878,26 @@ function paintStates(cfg, games, sts) {
     const card = cards[i];
     const p = byPid[card.getAttribute('data-pid')];
     const g = (p && games) ? games[p.team] : null;
-    const v = cardView(p, g, (g && g.gameKey && sts) ? sts[g.gameKey] : null);
+    const st = (g && g.gameKey && sts) ? sts[g.gameKey] : null;
+    const v = cardView(p, g, st);
     if (!v) continue;
+    const isFinal = st.gamestate === 'FINAL';
     const clockEl = card.querySelector('.pc-clock');
     const scoreEl = card.querySelector('.pc-score');
     if (clockEl) clockEl.textContent = v.clock;
     if (scoreEl) scoreEl.textContent = v.score;
-    let sit = card.querySelector('.pc-situation');
-    if (v.situation == null) {
-      if (sit) sit.style.display = 'none';
+    const pill = card._pill;
+    if (isFinal) {
+      pill.style.display = 'none';
     } else {
-      if (!sit) { sit = mkEl('div', 'pc-situation', ''); card.insertBefore(sit, card.querySelector('.pc-field') || card.querySelector('.pc-stats')); }
-      sit.style.display = '';
-      sit.textContent = v.situation;
+      pill.style.display = '';
+      pill.textContent = (st.gamestate === 'HALFTIME') ? 'HALFTIME' : v.situation;
     }
-    const dot = card.querySelector('.pc-field-dot');
-    if (dot) {
-      if (v.dotLeft == null) {
-        dot.classList.remove('visible');
-      } else if (!dot.classList.contains('visible')) {
-        // hidden -> visible: jump to position without the slide, so it doesn't sweep in from a stale spot
-        dot.classList.add('no-anim');
-        dot.style.left = v.dotLeft + '%';
-        void dot.offsetWidth;
-        dot.classList.remove('no-anim');
-        dot.classList.add('visible');
-      } else {
-        dot.style.left = v.dotLeft + '%';
-      }
-    }
+    card.classList.toggle('collapsed', isFinal);
+    card._frac = liveFraction(st);
+    paintProjection(card);
+    if (card._stats) refitStatLine(card._stats); // collapsed state changes the card width => re-measure
+    paintTrail(card, p, st);
   }
 }
 
@@ -1503,35 +1940,90 @@ function mkEl(tag, cls, text) {
 }
 
 function buildCard(p, cfg, games) {
-  const card = mkEl('div', 'player-card');
+  // Returns the reserved .pc-slot wrapper; the .player-card inside carries data-pid and the element refs
+  // (_pill/_marker/_fill/_stats/_projEl/_proj/_side) the paint functions use.
+  const card = mkEl('div', 'player-card collapsed');
   if (p.playerId) card.setAttribute('data-pid', p.playerId);
+  card.style.setProperty('--pos-color', POSITION_COLORS[p.pos] || '#999');
+  card._side = p.side;
   const nameDiv = mkEl('div', 'pc-name');
   nameDiv.appendChild(mkEl('span', 'pc-name-text', p.empty ? '(empty)' : formatMatchupName(p)));
   nameDiv.appendChild(mkEl('span', 'pc-actual-pts', ''));
   const stateDiv = mkEl('div', 'pc-game-state');
   stateDiv.appendChild(mkEl('span', 'pc-clock', ''));
   stateDiv.appendChild(mkEl('span', 'pc-score', p.empty ? '' : pregameText(p.team, games)));
-  stateDiv.appendChild(mkEl('span', 'pc-proj-pts', (!p.empty && p.projStats) ? fmtPts(leagueComputedProj(p.projStats, cfg.scoring)) : ''));
-  card.appendChild(nameDiv);
-  card.appendChild(stateDiv);
-  // No .pc-situation line before kickoff (user, 2026-10-01: cards were too tall, ~7.5 of 9 visible).
-  // S3 will add it when a game is live.
-  const fieldDiv = mkEl('div', 'pc-field');
-  fieldDiv.appendChild(mkEl('div', 'pc-field-dot'));
-  card.appendChild(fieldDiv);
-  card.appendChild(mkEl('div', 'pc-stats', ''));
-  card.appendChild(mkEl('div', 'pc-ticker', ''));
-  return card;
+  const projEl = mkEl('span', 'pc-proj-pts', '');
+  stateDiv.appendChild(projEl);
+  card._projEl = projEl;
+  card._proj = (!p.empty && p.projStats) ? leagueComputedProj(p.projStats, cfg.scoring) : null;
+  if (card._proj != null) projEl.textContent = fmtPts(card._proj);
+  // Outer-edge tab: vertical TEAM + POS (live league data has no jersey number).
+  const tab = mkEl('div', 'pc-tab');
+  tab.appendChild(mkEl('span', 'pc-tab-team', p.empty ? '' : (p.team || '')));
+  tab.appendChild(mkEl('span', 'pc-tab-pos', p.empty ? (p.slot || '') : (p.pos || '')));
+  // Trail row: track, fill, ball marker (one SVG with 3 shapes - right-pointing / left-pointing / plain circle; CSS
+  // shows one - plus the team logo), and the pill (down & distance / situation text).
+  const trail = mkEl('div', 'pc-trail');
+  trail.appendChild(mkEl('div', 'pc-track'));
+  const fill = mkEl('div', 'pc-fill ' + p.side);
+  trail.appendChild(fill);
+  const marker = mkEl('div', 'pc-marker ' + (p.side === 'own' ? 'dir-right' : 'dir-left'));
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(svgNS, 'svg');
+  svg.setAttribute('viewBox', '0 0 20 14');
+  [['path', 'shape-r', 'M16,7 L11,2.528 A6,6 0 1,0 11,11.472 Z'],
+   ['path', 'shape-l', 'M4,7 L9,2.528 A6,6 0 1,1 9,11.472 Z'],
+   ['circle', 'shape-c', null]].forEach(function(s) {
+    const shapeEl = document.createElementNS(svgNS, s[0]);
+    shapeEl.setAttribute('class', s[1]);
+    if (s[2]) { shapeEl.setAttribute('d', s[2]); } else { shapeEl.setAttribute('cx', '7'); shapeEl.setAttribute('cy', '7'); shapeEl.setAttribute('r', '6'); }
+    svg.appendChild(shapeEl);
+  });
+  marker.appendChild(svg);
+  if (!p.empty && p.team) {
+    const logoImg = mkEl('img', 'pc-logo');
+    logoImg.alt = '';
+    logoImg.src = teamLogoUrl(p.team);
+    const logoTxt = mkEl('span', 'pc-logo-fallback', p.team);
+    logoImg.onerror = function() { logoImg.style.display = 'none'; logoTxt.style.display = 'block'; };
+    marker.appendChild(logoImg);
+    marker.appendChild(logoTxt);
+  }
+  trail.appendChild(marker);
+  const pill = mkEl('div', 'pc-situation', '');
+  trail.appendChild(pill);
+  const stats = mkEl('div', 'pc-stats', '');
+  card._pill = pill;
+  card._marker = marker;
+  card._fill = fill;
+  card._stats = stats;
+  const body = mkEl('div', 'pc-body');
+  body.appendChild(nameDiv);
+  body.appendChild(stateDiv);
+  body.appendChild(trail);
+  body.appendChild(stats);
+  card.appendChild(tab);
+  card.appendChild(body);
+  const slot = mkEl('div', 'pc-slot');
+  slot.appendChild(card);
+  return slot;
 }
 
-// Cards per side = starters count; --mk auto-fits (1.8 at 9 cards, scaled down for more).
+// Cards per side = starters count; --mk = 1.56 at 9 cards (9 reserved 76u slots fill the 1080-tall screen), scaled
+// down for more. Also makes sure the empty bottom-middle box exists inside #lane-matchup.
 function renderCards(cfg, games) {
   const ownEl = document.getElementById('matchup-own');
   const oppEl = document.getElementById('matchup-opp');
   ownEl.innerHTML = '';
   oppEl.innerHTML = '';
   const n = Math.max(cfg.own.players.length, cfg.opp ? cfg.opp.players.length : 0, 1);
-  document.getElementById('lane-matchup').style.setProperty('--mk', String(Math.min(1.8, 1.8 * 9 / n)));
+  const lane = document.getElementById('lane-matchup');
+  lane.style.setProperty('--mk', String(Math.min(1.56, 1.56 * 9 / n)));
+  if (!document.getElementById('bottom-box')) {
+    const bb = mkEl('div');
+    bb.id = 'bottom-box';
+    lane.appendChild(bb);
+  }
   [cfg.own, cfg.opp].forEach(function(side) {
     if (!side) return;
     const host = side.side === 'own' ? ownEl : oppEl;
