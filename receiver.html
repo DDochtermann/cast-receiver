@@ -265,7 +265,7 @@
      --pos-color (set per card in JS from POSITION_COLORS). */
 /* Gap (top edge + between stacked slots) = 2px at the 1920 reference, independent of --mk: --gap is in --u units, so it is 2 / --mk. --mk 1.54 fills the 1080 height: 9 x 76u x 1.54 + 10 x 2px = ~1073px at 1920 wide (my estimate, unmeasured). */
 #lane-matchup { --mk: 1.56; --gap: calc(0.5 / var(--mk)); --slot-h-u: 76; --pos-color: #999; }
-#lane-matchup .matchup-side { width: calc(187 * var(--u)); }
+#lane-matchup .matchup-side { width: calc(188 * var(--u)); }
 /* Live card (game in progress; .collapsed = PRE/FINAL, HALFTIME stays live): 1px position-colored border, drawn on every side EXCEPT the screen-edge side (left col: no left border; right col: no right border). All cards carry the same transparent 1px border so going live/final never shifts layout; live just colors it. */
 /* Batch 9: the live-card border above was REMOVED. Live now only recolors the tab bars (--bar-color; pre/post-game bars stay plain gray #888) and pins the card to the top of its slot (collapsed cards are centered in the slot). */
 #lane-matchup .player-card:not(.collapsed) { --bar-color: var(--pos-color); align-self: flex-start; }
@@ -288,7 +288,7 @@
 }
 #lane-matchup .pc-tab {
   flex: 0 0 auto;
-  width: calc(11 * var(--u));
+  width: calc(12 * var(--u));
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -304,10 +304,10 @@
 }
 /* Tab text order is top-to-bottom #num, TEAM, POS on BOTH columns (right column no longer reversed). */
 /* Actual fantasy points value only (not the projection): larger than the name (11.495u). .pc-name is baseline-aligned, so it stays on the name baseline. */
-#lane-matchup .player-card .pc-name .pc-actual-pts { font-size: calc(14.4 * var(--u)); }
+#lane-matchup .player-card .pc-name .pc-actual-pts { font-size: calc(14.4 * var(--u)); line-height: 1; }
 #lane-matchup .pc-tab span {
   writing-mode: vertical-rl;
-  font-size: calc(7.4 * var(--u));
+  font-size: calc(8.2 * var(--u));
   font-weight: 700;
   line-height: 1;
   color: #fff;
