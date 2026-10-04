@@ -1462,7 +1462,7 @@ function specialLabelForPlay(m) {
     return (m.team || m.possession) + ' Kickoff';
   }
   if (m.play_type === 'extra_point' || m.play_type === 'two_point_conversion' || m.play_type === 'two_point_attempt') {
-    return (m.team || m.possession) + ' Extra Point';
+    return 'Extra Point'; // only the offense's card shows this label; the other team gets '<TEAM> on Defense' (xpDefense, via specialTeam)
   }
   if (m.play_type === 'field_goal' && /is GOOD/i.test(m.description || '')) {
     return (m.team || m.possession) + ' Kickoff';
@@ -1567,10 +1567,8 @@ function cardView(p, g, st) {
   if (st.gamestate === 'FINAL' && hasScores) {
     const result = ownScore > oppScore ? 'W' : (ownScore < oppScore ? 'L' : 'T');
     score = result + ' ' + ownScore + ' - ' + oppScore + ' ' + vsOrAt + ' ' + oppAbbr;
-  } else if (hasScores) {
-    score = ownScore + ' - ' + oppScore;
   } else {
-    score = '--';
+    score = (hasScores ? (ownScore + ' - ' + oppScore) : '--') + ' ' + vsOrAt + ' ' + oppAbbr; // in-game: score then VS|@ OPP (same tail as FINAL)
   }
   const terminal = st.gamestate === 'HALFTIME' || st.gamestate === 'FINAL';
   let situation = null;
@@ -1649,6 +1647,28 @@ function updateTickers(lastPoints, pts) {
   return out;
 }
 
+// Stat adjustments (2026-10-04): a points change with NO new carry / catch / target / pass attempt for that player since the
+// last poll (e.g. a yardage correction) is not a play: points + stat line still update, but no floating delta. DEF cards
+// (no carries/catches) are excluded here, so they keep every delta.
+const PLAY_COUNTERS = ['rush_att', 'rec_tgt', 'rec', 'pass_att', 'pass_cmp'];
+function playCounterSig(stats) {
+  return PLAY_COUNTERS.map(function(k) { return Number((stats && stats[k]) || 0); }).join('|');
+}
+function computeCounterSigs(cfg, statsByGame, games) {
+  const out = {};
+  [cfg.own, cfg.opp].forEach(function(side) {
+    if (!side) return;
+    side.players.forEach(function(p) {
+      if (p.empty || !p.playerId || p.pos === 'DEF') return;
+      const g = games ? games[p.team] : null;
+      const rows = (g && g.gameKey) ? statsByGame[g.gameKey] : null;
+      if (!rows || !rows[p.playerId]) return;
+      out[p.playerId] = playCounterSig(rows[p.playerId]);
+    });
+  });
+  return out;
+}
+
 // One poll tick. state = { cfg, games, statsByGame, statesByGame, finalFetched, lastScoresMs, lastPoints }; deps = { now, fetchGames, fetchGamePlays,
 // fetchGameStats, paint }. Mutates state; returns { nextWakeMs, done, polled, errors }. Fetch errors keep
 // the previously stored stats (card keeps its last points) and are reported, never thrown.
@@ -1682,8 +1702,15 @@ async function pollOnce(state, deps) {
     if (ok && plan.finalKeys.indexOf(key) !== -1) state.finalFetched[key] = true;
   }));
   state.lastPoints = state.lastPoints || {};
+  state.lastSigs = state.lastSigs || {};
   const pts = computeCardPoints(state.cfg, state.statsByGame, state.games);
+  const sigs = computeCounterSigs(state.cfg, state.statsByGame, state.games);
   const tickers = updateTickers(state.lastPoints, pts);
+  Object.keys(tickers).forEach(function(pid) {
+    // stat adjustment: points moved but no carry/catch/target/pass-attempt counter did since the last poll => update silently
+    if (sigs[pid] !== undefined && state.lastSigs[pid] !== undefined && sigs[pid] === state.lastSigs[pid]) delete tickers[pid];
+  });
+  Object.keys(sigs).forEach(function(pid) { state.lastSigs[pid] = sigs[pid]; });
   deps.paint(pts, state.statesByGame, tickers);
   const next = planPolls(relevantGames(state.cfg, state.games), state.finalFetched, deps.now(), state.lastScoresMs);
   return { nextWakeMs: next.nextWakeMs, done: next.done, polled: plan.pollKeys, errors: errors };
@@ -1778,6 +1805,13 @@ function placePill(card, mode, shownPct) {
     pill.style.left = '50%';
     return;
   }
+  if (mode === 'edge') {
+    // No marker circle/logo (defense / halftime): the pill sits at the track edge on the card's own-goal side (own column = left, opp column = right), base padding only.
+    pill.classList.remove('centered');
+    if (card._side === 'own') { pill.style.left = '0'; pill.style.transformOrigin = 'left center'; }
+    else { pill.style.right = '0'; pill.style.transformOrigin = 'right center'; }
+    return;
+  }
   pill.classList.remove('centered');
   const dirRight = (card._side === 'own'); // on-screen direction of offense travel
   const rightOfMarker = (mode === 'ahead') ? dirRight : !dirRight;
@@ -1826,7 +1860,7 @@ function paintProjection(card) {
   if (card._isDef) est = Math.min(card._actual, est); // defense: the lesser of the current points and the usual math
   card._projShown = est;
   el.textContent = fmtPts(est);
-  if (proj > 0) {
+  if (proj > 0 && !card._isDef) { // defense keeps the default color (no red/green)
     if (est <= proj * 0.8) el.style.color = '#f28b82';
     else if (est >= proj * 1.2) el.style.color = '#81c995';
   }
@@ -1854,7 +1888,7 @@ function paintTrail(card, p, st) {
   let noMarker = false; // a team on defense shows the pill only, no circle/logo
   if (st.gamestate === 'HALFTIME' || st.specialLabel) {
     pct = 0; defense = true; mode = 'ahead';
-    if (xpDefense(p, st)) noMarker = true;
+    if (st.gamestate === 'HALFTIME' || xpDefense(p, st)) noMarker = true;
   } else if (st.possession && st.possession !== p.team) {
     pct = 0; defense = true; mode = 'ahead'; noMarker = true;
   } else if (st.possession === p.team) {
@@ -1876,7 +1910,7 @@ function paintTrail(card, p, st) {
   marker.classList.toggle('no-marker', noMarker);
   marker.style.left = shownPct + '%';
   fill.style.width = defense ? '0' : (5 + 0.9 * pct) + '%'; // trail ends at the ball
-  const offU = placePill(card, mode, shownPct);
+  const offU = placePill(card, noMarker ? 'edge' : mode, shownPct);
   // Ball past midfield (mode 'behind'): the pill sits ON the trail and hides its bright end, so the gradient reaches
   // full color at the pill's yard-0-facing edge instead (pixel stops measured at paint time; falls back to the plain
   // gradient if anything is unmeasurable).
