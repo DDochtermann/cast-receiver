@@ -139,15 +139,15 @@
     border-radius: calc(6 * var(--u));
     padding: calc(var(--pad-y) * var(--u)) calc(var(--pad-x) * var(--u));
     color: #fff;
-    font-size: calc(9.68 * var(--u));
+    font-size: calc(10.65 * var(--u));
     box-sizing: border-box;
     position: relative;
   }
   #lane-matchup .player-card .pc-name {
     color: #fff;
-    font-size: calc(11.495 * var(--u));
+    font-size: calc(12.64 * var(--u));
     font-weight: 700;
-    margin-bottom: calc(2.42 * var(--u));
+    margin-bottom: calc(1.5 * var(--u));
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -171,7 +171,7 @@
     flex: 0 0 auto;
   }
   #lane-matchup .player-card .pc-game-state {
-    font-size: calc(7.865 * var(--u));
+    font-size: calc(8.65 * var(--u));
     color: #ccc;
     margin-bottom: calc(4.84 * var(--u));
     display: flex;
@@ -184,12 +184,12 @@
     flex: 0 0 auto;
   }
   #lane-matchup .player-card .pc-situation {
-    font-size: calc(7.865 * var(--u));
+    font-size: calc(8.65 * var(--u));
     color: #aaa;
     margin-bottom: calc(6.05 * var(--u));
   }
   #lane-matchup .player-card .pc-stats {
-    font-size: calc(7.865 * var(--u));
+    font-size: calc(8.65 * var(--u));
     font-weight: 400;
     color: #aaa;
     border-top: 1px solid #333;
@@ -240,7 +240,7 @@
     padding: calc(2 * var(--u)) calc(4 * var(--u));
     background: rgba(0,0,0,0.85);
     border-radius: calc(3 * var(--u));
-    font-size: calc(11.495 * var(--u));
+    font-size: calc(12.64 * var(--u));
     font-weight: 700;
     color: #4ade80;
     opacity: 0;
@@ -304,10 +304,10 @@
 }
 /* Tab text order is top-to-bottom #num, TEAM, POS on BOTH columns (right column no longer reversed). */
 /* Actual fantasy points value only (not the projection): larger than the name (11.495u). .pc-name is baseline-aligned, so it stays on the name baseline. */
-#lane-matchup .player-card .pc-name .pc-actual-pts { font-size: calc(14.4 * var(--u)); line-height: 1; }
+#lane-matchup .player-card .pc-name .pc-actual-pts { font-size: calc(15.84 * var(--u)); line-height: 1; }
 #lane-matchup .pc-tab span {
   writing-mode: vertical-rl;
-  font-size: calc(8.2 * var(--u));
+  font-size: calc(9.02 * var(--u));
   font-weight: 700;
   line-height: 1;
   color: #fff;
@@ -322,17 +322,17 @@
 #lane-matchup .pc-body {
   flex: 1 1 auto;
   min-width: 0;
-  padding: calc(5 * var(--u)) calc(7 * var(--u));
+  padding: calc(3 * var(--u)) calc(6 * var(--u));
 }
 #lane-matchup .matchup-side.opp .player-card .pc-name { flex-direction: row-reverse; }
 #lane-matchup .matchup-side.opp .player-card .pc-name .pc-name-text { text-align: right; }
-#lane-matchup .player-card .pc-game-state { justify-content: flex-start; gap: calc(8 * var(--u)); margin-bottom: calc(1 * var(--u)); }
+#lane-matchup .player-card .pc-game-state { justify-content: flex-start; gap: calc(6 * var(--u)); margin-bottom: calc(1 * var(--u)); }
 #lane-matchup .player-card .pc-game-state .pc-clock:empty { display: none; } /* empty clock (PRE/FINAL) must not leave a flex gap => no indent on the W/L/FINAL line */
 #lane-matchup .player-card .pc-game-state .pc-proj-pts { margin-left: auto; }
 #lane-matchup .matchup-side.opp .player-card .pc-game-state .pc-proj-pts { order: 0; margin-left: 0; margin-right: auto; }
 #lane-matchup .matchup-side.opp .player-card .pc-game-state .pc-clock { order: 1; }
 #lane-matchup .matchup-side.opp .player-card .pc-game-state .pc-score { order: 2; }
-#lane-matchup .player-card .pc-stats { border-top: none; padding-top: calc(2 * var(--u)); line-height: 1.25; }
+#lane-matchup .player-card .pc-stats { border-top: none; padding-top: calc(1 * var(--u)); line-height: 1.25; }
 /* Active (non-collapsed) cards always reserve the full 4th (stat) line, even when the player has no stats yet. */
 #lane-matchup .player-card:not(.collapsed) .pc-stats { min-height: 1.25em; }
 /* Trail row (live cards only; .collapsed hides it): track = the field, fill = down-colored trail
@@ -372,7 +372,7 @@
 }
 #lane-matchup .pc-marker.visible { opacity: 1; }
 #lane-matchup .pc-marker .pc-logo { width: 75%; height: 75%; object-fit: contain; position: relative; z-index: 1; }
-#lane-matchup .pc-marker .pc-logo-fallback { display: none; font-size: calc(8.5 * var(--u)); font-weight: 700; color: #fff; position: relative; z-index: 1; }
+#lane-matchup .pc-marker .pc-logo-fallback { display: none; font-size: calc(9.35 * var(--u)); font-weight: 700; color: #fff; position: relative; z-index: 1; }
 /* Marker body = ONE inline-SVG shape (circle + pointer as a single path: dark fill, 1px light outline, so the tip is part of the same outlined shape). viewBox 0 0 20 14: 1 unit = 1.0833u; circle r 6 (= the 13u marker box), center x=7 (right-pointing, tip x=19) / x=13 (left-pointing, tip x=1) / x=7 (plain circle). */
 #lane-matchup .pc-marker svg { position: absolute; top: calc(-1.833 * var(--u)); width: calc(36.667 * var(--u)); height: calc(25.667 * var(--u)); overflow: visible; z-index: 0; pointer-events: none; }
 #lane-matchup .pc-marker svg path, #lane-matchup .pc-marker svg circle { fill: #0b1630; stroke: rgba(255, 255, 255, 0.45); stroke-width: 1; vector-effect: non-scaling-stroke; display: none; }
@@ -388,7 +388,7 @@
   transform: translateY(-50%) scaleX(var(--pill-sx));
   margin: 0;
   padding: calc(1.8 * var(--u)) calc(6 * var(--u));
-  font-size: calc(8.5 * var(--u));
+  font-size: calc(9.35 * var(--u));
   font-style: normal;
   color: #c4c4c4;
   background: rgba(6, 12, 24, 0.92);
@@ -418,7 +418,7 @@
   padding: calc(2 * var(--u)) calc(4 * var(--u));
   background: rgba(6, 12, 24, 0.72);
   border-radius: calc(3 * var(--u));
-  font-size: calc(11.495 * var(--u));
+  font-size: calc(12.64 * var(--u));
   font-weight: 700;
   color: #4ade80;
   white-space: nowrap;
@@ -1420,7 +1420,9 @@ function terminalPhaseLabelForPlay(m) {
   return null;
 }
 function deriveCurrentState(plays) {
-  const newest = plays[0];
+  // Timeouts (TV/team) carry no down, possession or label; judge the state by the last non-timeout play so
+  // e.g. the Extra Point / End Zone label holds through the break instead of reverting to the TD snap's down.
+  const newest = plays.find(p => !(p.metadata && p.metadata.play_type === 'timeout')) || plays[0];
   const nm = newest.metadata || {};
 
   const term = terminalPhaseLabelForPlay(nm);
