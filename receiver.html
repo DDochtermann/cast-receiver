@@ -139,13 +139,13 @@
     border-radius: calc(6 * var(--u));
     padding: calc(var(--pad-y) * var(--u)) calc(var(--pad-x) * var(--u));
     color: #fff;
-    font-size: calc(10.65 * var(--u));
+    font-size: calc(11.715 * var(--u));
     box-sizing: border-box;
     position: relative;
   }
   #lane-matchup .player-card .pc-name {
     color: #fff;
-    font-size: calc(12.64 * var(--u));
+    font-size: calc(11.376 * var(--u));
     font-weight: 700;
     margin-bottom: calc(1.5 * var(--u));
     white-space: nowrap;
@@ -171,7 +171,7 @@
     flex: 0 0 auto;
   }
   #lane-matchup .player-card .pc-game-state {
-    font-size: calc(8.65 * var(--u));
+    font-size: calc(9.515 * var(--u));
     color: #ccc;
     margin-bottom: calc(4.84 * var(--u));
     display: flex;
@@ -189,7 +189,7 @@
     margin-bottom: calc(6.05 * var(--u));
   }
   #lane-matchup .player-card .pc-stats {
-    font-size: calc(8.65 * var(--u));
+    font-size: calc(9.515 * var(--u));
     font-weight: 400;
     color: #aaa;
     border-top: 1px solid #333;
@@ -304,10 +304,10 @@
 }
 /* Tab text order is top-to-bottom #num, TEAM, POS on BOTH columns (right column no longer reversed). */
 /* Actual fantasy points value only (not the projection): larger than the name (11.495u). .pc-name is baseline-aligned, so it stays on the name baseline. */
-#lane-matchup .player-card .pc-name .pc-actual-pts { font-size: calc(15.84 * var(--u)); line-height: 1; }
+#lane-matchup .player-card .pc-name .pc-actual-pts { font-size: calc(17.424 * var(--u)); line-height: 1; }
 #lane-matchup .pc-tab span {
   writing-mode: vertical-rl;
-  font-size: calc(9.02 * var(--u));
+  font-size: calc(9.922 * var(--u));
   font-weight: 700;
   line-height: 1;
   color: #fff;
@@ -328,6 +328,10 @@
 #lane-matchup .matchup-side.opp .player-card .pc-name .pc-name-text { text-align: right; }
 #lane-matchup .player-card .pc-game-state { justify-content: flex-start; gap: calc(6 * var(--u)); margin-bottom: calc(1 * var(--u)); }
 #lane-matchup .player-card .pc-game-state .pc-clock:empty { display: none; } /* empty clock (PRE/FINAL) must not leave a flex gap => no indent on the W/L/FINAL line */
+/* Pregame line 3 (kickoff stays on line 2): 'VS DAL' / '@ DAL'. Only on collapsed cards, and empty (hidden) once the game has a state (live/final) or for a BYE. */
+#lane-matchup .player-card .pc-opp-line { font-size: calc(9.515 * var(--u)); color: #ccc; margin-bottom: calc(1 * var(--u)); }
+#lane-matchup .matchup-side.opp .player-card .pc-opp-line { text-align: right; }
+#lane-matchup .player-card .pc-opp-line:empty, #lane-matchup .player-card:not(.collapsed) .pc-opp-line { display: none; }
 #lane-matchup .player-card .pc-game-state .pc-proj-pts { margin-left: auto; }
 #lane-matchup .matchup-side.opp .player-card .pc-game-state .pc-proj-pts { order: 0; margin-left: 0; margin-right: auto; }
 #lane-matchup .matchup-side.opp .player-card .pc-game-state .pc-clock { order: 1; }
@@ -372,7 +376,7 @@
 }
 #lane-matchup .pc-marker.visible { opacity: 1; }
 #lane-matchup .pc-marker .pc-logo { width: 75%; height: 75%; object-fit: contain; position: relative; z-index: 1; }
-#lane-matchup .pc-marker .pc-logo-fallback { display: none; font-size: calc(9.35 * var(--u)); font-weight: 700; color: #fff; position: relative; z-index: 1; }
+#lane-matchup .pc-marker .pc-logo-fallback { display: none; font-size: calc(10.285 * var(--u)); font-weight: 700; color: #fff; position: relative; z-index: 1; }
 /* Marker body = ONE inline-SVG shape (circle + pointer as a single path: dark fill, 1px light outline, so the tip is part of the same outlined shape). viewBox 0 0 20 14: 1 unit = 1.0833u; circle r 6 (= the 13u marker box), center x=7 (right-pointing, tip x=19) / x=13 (left-pointing, tip x=1) / x=7 (plain circle). */
 #lane-matchup .pc-marker svg { position: absolute; top: calc(-1.833 * var(--u)); width: calc(36.667 * var(--u)); height: calc(25.667 * var(--u)); overflow: visible; z-index: 0; pointer-events: none; }
 #lane-matchup .pc-marker svg path, #lane-matchup .pc-marker svg circle { fill: #0b1630; stroke: rgba(255, 255, 255, 0.45); stroke-width: 1; vector-effect: non-scaling-stroke; display: none; }
@@ -388,7 +392,7 @@
   transform: translateY(-50%) scaleX(var(--pill-sx));
   margin: 0;
   padding: calc(1.8 * var(--u)) calc(6 * var(--u));
-  font-size: calc(9.35 * var(--u));
+  font-size: calc(10.285 * var(--u));
   font-style: normal;
   color: #c4c4c4;
   background: rgba(6, 12, 24, 0.92);
@@ -418,7 +422,7 @@
   padding: calc(2 * var(--u)) calc(4 * var(--u));
   background: rgba(6, 12, 24, 0.72);
   border-radius: calc(3 * var(--u));
-  font-size: calc(12.64 * var(--u));
+  font-size: calc(13.904 * var(--u));
   font-weight: 700;
   color: #4ade80;
   white-space: nowrap;
@@ -1173,7 +1177,7 @@ async function resolveMatchup(leagueId, week, rosterId, projMap) {
     return { side: side, rosterId: m.roster_id, team: teamById[m.roster_id] || null, players: players };
   }
 
-  return {
+  const cfg = {
     leagueId: String(leagueId),
     leagueName: league.name,
     season: league.season,
@@ -1184,6 +1188,44 @@ async function resolveMatchup(leagueId, week, rosterId, projMap) {
     own: buildSide('own', ownM),
     opp: oppM ? buildSide('opp', oppM) : null
   };
+  try { await attachJerseyNumbers(cfg); } catch (e) { /* numbers are cosmetic: never fail the matchup over them */ }
+  return cfg;
+}
+
+// Jersey numbers (2026-10-04): Sleeper's projection/stat rows carry none, so they come from ESPN's public team roster
+// endpoint (browser CORS verified; one ~356 KB call per team in the matchup, in parallel), matched on normalized full
+// name + team (96/96 league starters matched in the 2026-10-04 test). Sets p.number (string) on matching non-DEF players;
+// DEF, empty slots and any failed/unmatched lookup are left without one (the card just omits the number).
+function jerseyNormName(n) {
+  return String(n || '').toLowerCase().replace(/[.'\u2019,-]/g, ' ').replace(/\s+/g, ' ').trim().split(' ').filter(function(t) { return ['jr', 'sr', 'ii', 'iii', 'iv', 'v'].indexOf(t) === -1; }).join(' ');
+}
+function espnTeamAbbr(a) {
+  a = String(a || '').toLowerCase();
+  return a === 'was' ? 'wsh' : a; // Sleeper WAS = ESPN WSH (ESPN 400s on 'was')
+}
+async function attachJerseyNumbers(cfg) {
+  const players = [];
+  [cfg.own, cfg.opp].forEach(function(side) {
+    if (!side) return;
+    side.players.forEach(function(p) { if (!p.empty && p.team && p.pos !== 'DEF') players.push(p); });
+  });
+  const teams = Array.from(new Set(players.map(function(p) { return p.team; })));
+  const maps = {};
+  await Promise.all(teams.map(async function(t) {
+    try {
+      const j = await getJson('https://site.api.espn.com/apis/site/v2/sports/football/nfl/teams/' + espnTeamAbbr(t) + '/roster');
+      const m = {};
+      (j.athletes || []).forEach(function(g) {
+        (g.items || []).forEach(function(a) { if (a.jersey != null && a.jersey !== '') m[jerseyNormName(a.fullName)] = String(a.jersey); });
+      });
+      maps[t] = m;
+    } catch (e) { /* this team keeps no numbers */ }
+  }));
+  players.forEach(function(p) {
+    const m = maps[p.team];
+    const n = m ? m[jerseyNormName(p.name)] : undefined;
+    if (n !== undefined) p.number = n;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1243,12 +1285,16 @@ async function fetchGames(season, week) {
 }
 
 // Pregame score-slot text: `<kickoff> VS|@ <opp>` (VS = this team is the home team); BYE if no game.
-function pregameText(team, games) {
-  if (!team) return '';
+function pregameParts(team, games) {
+  if (!team) return { when: '', opp: '' };
   const g = games ? games[team] : null;
-  if (!g) return 'BYE';
+  if (!g) return { when: 'BYE', opp: '' };
   const isHome = g.home === team;
-  return (kickoffText(g.dateTime) + ' ' + (isHome ? 'VS' : '@') + ' ' + (isHome ? g.away : g.home)).trim();
+  return { when: kickoffText(g.dateTime), opp: (isHome ? 'VS' : '@') + ' ' + (isHome ? g.away : g.home) };
+}
+function pregameText(team, games) {
+  const x = pregameParts(team, games);
+  return (x.when + ' ' + x.opp).trim();
 }
 
 // ---------------------------------------------------------------------------
@@ -1882,7 +1928,13 @@ function paintStates(cfg, games, sts) {
     const g = (p && games) ? games[p.team] : null;
     const st = (g && g.gameKey && sts) ? sts[g.gameKey] : null;
     const v = cardView(p, g, st);
-    if (!v) continue;
+    if (!v) {
+      // No game state yet (pregame / bye): the points slot shows '-' unless real non-zero points already exist.
+      const ptsEl = card.querySelector('.pc-actual-pts');
+      if (ptsEl && (card._actual == null || card._actual === 0)) ptsEl.textContent = '-';
+      continue;
+    }
+    if (card._opp) card._opp.textContent = ''; // pregame line 3 only
     const isFinal = st.gamestate === 'FINAL';
     const clockEl = card.querySelector('.pc-clock');
     const scoreEl = card.querySelector('.pc-score');
@@ -1950,17 +2002,21 @@ function buildCard(p, cfg, games) {
   card._side = p.side;
   const nameDiv = mkEl('div', 'pc-name');
   nameDiv.appendChild(mkEl('span', 'pc-name-text', p.empty ? '(empty)' : formatMatchupName(p)));
-  nameDiv.appendChild(mkEl('span', 'pc-actual-pts', ''));
+  nameDiv.appendChild(mkEl('span', 'pc-actual-pts', p.empty ? '' : '-')); // '-' until the game has state / points
+  const parts = p.empty ? { when: '', opp: '' } : pregameParts(p.team, games);
   const stateDiv = mkEl('div', 'pc-game-state');
   stateDiv.appendChild(mkEl('span', 'pc-clock', ''));
-  stateDiv.appendChild(mkEl('span', 'pc-score', p.empty ? '' : pregameText(p.team, games)));
+  stateDiv.appendChild(mkEl('span', 'pc-score', parts.when));
+  const oppLine = mkEl('div', 'pc-opp-line', parts.opp);
+  card._opp = oppLine;
   const projEl = mkEl('span', 'pc-proj-pts', '');
   stateDiv.appendChild(projEl);
   card._projEl = projEl;
   card._proj = (!p.empty && p.projStats) ? leagueComputedProj(p.projStats, cfg.scoring) : null;
   if (card._proj != null) projEl.textContent = fmtPts(card._proj);
-  // Outer-edge tab: vertical TEAM + POS (live league data has no jersey number).
+  // Outer-edge tab: vertical #NUMBER (when known, from ESPN via attachJerseyNumbers; hidden when collapsed), TEAM, POS.
   const tab = mkEl('div', 'pc-tab');
+  if (!p.empty && p.number) tab.appendChild(mkEl('span', 'pc-tab-num', '#' + p.number));
   tab.appendChild(mkEl('span', 'pc-tab-team', p.empty ? '' : (p.team || '')));
   tab.appendChild(mkEl('span', 'pc-tab-pos', p.empty ? (p.slot || '') : (p.pos || '')));
   // Trail row: track, fill, ball marker (one SVG with 3 shapes - right-pointing / left-pointing / plain circle; CSS
@@ -2002,6 +2058,7 @@ function buildCard(p, cfg, games) {
   const body = mkEl('div', 'pc-body');
   body.appendChild(nameDiv);
   body.appendChild(stateDiv);
+  body.appendChild(oppLine);
   body.appendChild(trail);
   body.appendChild(stats);
   card.appendChild(tab);
@@ -2053,7 +2110,8 @@ function renderCards(cfg, games) {
     seen[id] = true;
     if (p.team != null && !isNonEmptyStr(p.team)) return null;
     if (p.projStats != null && (typeof p.projStats !== 'object' || Array.isArray(p.projStats))) return null;
-    return { side: side, slot: typeof p.slot === 'string' ? p.slot : '?', playerId: id, name: String(p.name), pos: String(p.pos), team: p.team == null ? null : String(p.team), projStats: p.projStats || null };
+    if (p.number != null && !isNonEmptyStr(p.number)) return null;
+    return { side: side, slot: typeof p.slot === 'string' ? p.slot : '?', playerId: id, name: String(p.name), pos: String(p.pos), team: p.team == null ? null : String(p.team), number: p.number == null ? null : String(p.number), projStats: p.projStats || null };
   }
   function normSide(s, side, seen) {
     if (!s || typeof s !== 'object' || !Array.isArray(s.players) || s.players.length === 0 || s.players.length > 30) return null;
