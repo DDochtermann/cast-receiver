@@ -265,7 +265,7 @@
      --pos-color (set per card in JS from POSITION_COLORS). */
 /* Gap (top edge + between stacked slots) = 2px at the 1920 reference, independent of --mk: --gap is in --u units, so it is 2 / --mk. --mk 1.54 fills the 1080 height: 9 x 76u x 1.54 + 10 x 2px = ~1073px at 1920 wide (my estimate, unmeasured). */
 #lane-matchup { --mk: 1.56; --gap: calc(0.5 / var(--mk)); --slot-h-u: 76; --pos-color: #999; }
-#lane-matchup .matchup-side { width: calc(188 * var(--u)); }
+#lane-matchup .matchup-side { width: calc(169 * var(--u)); } /* batch 3: expanded (live) card width 188u -> 169u (-10%) */
 /* Live card (game in progress; .collapsed = PRE/FINAL, HALFTIME stays live): 1px position-colored border, drawn on every side EXCEPT the screen-edge side (left col: no left border; right col: no right border). All cards carry the same transparent 1px border so going live/final never shifts layout; live just colors it. */
 /* Batch 9: the live-card border above was REMOVED. Live now only recolors the tab bars (--bar-color; pre/post-game bars stay plain gray #888) and pins the card to the top of its slot (collapsed cards are centered in the slot). */
 #lane-matchup .player-card:not(.collapsed) { --bar-color: var(--pos-color); align-self: flex-start; }
@@ -377,6 +377,9 @@
 #lane-matchup .pc-marker.visible { opacity: 1; }
 #lane-matchup .pc-marker .pc-logo { width: 75%; height: 75%; object-fit: contain; position: relative; z-index: 1; }
 #lane-matchup .pc-marker .pc-logo-fallback { display: none; font-size: calc(10.285 * var(--u)); font-weight: 700; color: #fff; position: relative; z-index: 1; }
+/* Batch 3: on a pointer-shaped marker the logo sits on the circle center, which reads off-center against the whole shape; nudge it ~1px (0.65u at --mk 1.56 on a 1920 screen) toward the point. Plain circle unaffected. */
+#lane-matchup .pc-marker.dir-right:not(.plain) .pc-logo, #lane-matchup .pc-marker.dir-right:not(.plain) .pc-logo-fallback { transform: translateX(calc(0.65 * var(--u))); }
+#lane-matchup .pc-marker.dir-left:not(.plain) .pc-logo, #lane-matchup .pc-marker.dir-left:not(.plain) .pc-logo-fallback { transform: translateX(calc(-0.65 * var(--u))); }
 /* Marker body = ONE inline-SVG shape (circle + pointer as a single path: dark fill, 1px light outline, so the tip is part of the same outlined shape). viewBox 0 0 20 14: 1 unit = 1.0833u; circle r 6 (= the 13u marker box), center x=7 (right-pointing, tip x=19) / x=13 (left-pointing, tip x=1) / x=7 (plain circle). */
 #lane-matchup .pc-marker svg { position: absolute; top: calc(-1.833 * var(--u)); width: calc(36.667 * var(--u)); height: calc(25.667 * var(--u)); overflow: visible; z-index: 0; pointer-events: none; }
 #lane-matchup .pc-marker svg path, #lane-matchup .pc-marker svg circle { fill: #0b1630; stroke: rgba(255, 255, 255, 0.45); stroke-width: 1; vector-effect: non-scaling-stroke; display: none; }
@@ -405,7 +408,7 @@
 #lane-matchup .player-card .pc-situation.centered { transform: translate(-50%, -50%) scaleX(var(--pill-sx)); }
 /* ---- Batch 8 (2026-10-03) ---- knobs: --collapse-u (collapsed card is this many units narrower than live; = the trail row's vertical collapse, 22u row + 1u margin), --pill-sx (horizontal condense of the down&distance pill; 1 = none). */
 #lane-matchup { --collapse-u: 23; --pill-sx: 0.88; }
-#lane-matchup .player-card.collapsed { width: calc((100% - (var(--collapse-u) * var(--u))) * 0.8); align-self: center; } /* batch 9: a further 20% narrower (x0.8) and vertically centered in the reserved slot */
+#lane-matchup .player-card.collapsed { width: calc(145 * var(--u)); align-self: center; } /* batch 3: collapsed width set absolutely, 132u -> 145u (+10%); vertically centered in the reserved slot */
 #lane-matchup .matchup-side.opp .player-card.collapsed { margin-left: auto; }
 /* Stat line: no ellipsis; an overflowing line scrolls as a looping marquee (JS adds .scrolling + --marq-dist/--marq-dur; two identical segments, pause at the start of each loop). */
 #lane-matchup .player-card .pc-stats { text-overflow: clip; }
@@ -1370,6 +1373,11 @@ function gamePhase(g, nowMs, finalFetched) {
 }
 
 // Only the games the picked matchup's players are in (fetchGames returns all 32 teams).
+function gameByKey(games, gameKey) {
+  const ks = Object.keys(games || {});
+  for (let i = 0; i < ks.length; i++) { if (games[ks[i]] && games[ks[i]].gameKey === gameKey) return games[ks[i]]; }
+  return null;
+}
 function relevantGames(cfg, games) {
   const out = {};
   [cfg.own, cfg.opp].forEach(function(side) {
@@ -1457,12 +1465,13 @@ function ordinal(n) {
   const v = n % 100;
   return n + (s[(v - 20) % 10] || s[v] || s[0]);
 }
+// Batch 3 (2026-10-04): extra-point / two-point plays have no label of their own any more -- deriveCurrentState treats them as an End Zone state for the kicking team (the other card shows '<TEAM> on Defense' via the normal possession rule).
+function isXpPlay(m) {
+  return m.play_type === 'extra_point' || m.play_type === 'two_point_conversion' || m.play_type === 'two_point_attempt';
+}
 function specialLabelForPlay(m) {
   if (m.play_type === 'kickoff' || m.play_type === 'kickoff_touchback' || m.play_type === 'kickoff_muffed') {
     return (m.team || m.possession) + ' Kickoff';
-  }
-  if (m.play_type === 'extra_point' || m.play_type === 'two_point_conversion' || m.play_type === 'two_point_attempt') {
-    return 'Extra Point'; // only the offense's card shows this label; the other team gets '<TEAM> on Defense' (xpDefense, via specialTeam)
   }
   if (m.play_type === 'field_goal' && /is GOOD/i.test(m.description || '')) {
     return (m.team || m.possession) + ' Kickoff';
@@ -1474,7 +1483,22 @@ function terminalPhaseLabelForPlay(m) {
   if (m.play_type === 'period_end' && m.quarter_name === '2') return 'Halftime';
   return null;
 }
-function deriveCurrentState(plays) {
+// Batch 3: team that actually scored on the newest scoring play = the side whose points rose vs the nearest older play that carries points (play-record points are post-play, verified on HOU@DAL 2026-10-04). Needs the game's {home, away} abbrs; null when unresolvable (caller falls back to the possession field, which on a return TD is the team that had the ball at the snap).
+function scorerTeam(plays, newest, g) {
+  if (!g || !g.home || !g.away) return null;
+  const nm = newest.metadata || {};
+  for (let j = plays.indexOf(newest) + 1; j < plays.length; j++) {
+    const o = plays[j].metadata;
+    if (!o || o.away_points == null || o.home_points == null) continue;
+    const dA = Number(nm.away_points) - Number(o.away_points);
+    const dH = Number(nm.home_points) - Number(o.home_points);
+    if (dA > 0 && !(dH > 0)) return g.away;
+    if (dH > 0 && !(dA > 0)) return g.home;
+    return null;
+  }
+  return null;
+}
+function deriveCurrentState(plays, g) {
   // Timeouts (TV/team) carry no down, possession or label; judge the state by the last non-timeout play so
   // e.g. the Extra Point / End Zone label holds through the break instead of reverting to the TD snap's down.
   const newest = plays.find(p => !(p.metadata && p.metadata.play_type === 'timeout')) || plays[0];
@@ -1501,8 +1525,12 @@ function deriveCurrentState(plays) {
   if (label) {
     return { clockStr, gamestate: 'LIVE', awayPts, homePts, possession: nm.possession, specialLabel: label, specialTeam: nm.team || nm.possession, endZone: false, down: null, distance: null };
   }
+  if (isXpPlay(nm)) {
+    // PAT / two-point try: stays an End Zone state for the kicking team (record possession == team == kicking team, verified).
+    return { clockStr, gamestate: 'LIVE', awayPts, homePts, possession: nm.team || nm.possession, specialLabel: null, endZone: true, down: null, distance: null };
+  }
   if (nm.is_scoring_play) {
-    return { clockStr, gamestate: 'LIVE', awayPts, homePts, possession: nm.possession, specialLabel: null, endZone: true, down: null, distance: null };
+    return { clockStr, gamestate: 'LIVE', awayPts, homePts, possession: scorerTeam(plays, newest, g) || nm.possession, specialLabel: null, endZone: true, down: null, distance: null };
   }
 
   const statePlayIdx = plays.indexOf(statePlay);
@@ -1546,9 +1574,9 @@ function fieldDotPct(p, st) {
 // Own column progresses left->right (own goal at the screen edge), opp column right->left (mirrored).
 function dotLeftPct(side, pct) { return side === 'own' ? pct : 100 - pct; }
 
-// Display tweak (2026-10-04): on an extra-point / two-point play the team NOT attempting it shows '<TEAM> on Defense' (kickoffs keep their label on both cards).
-function xpDefense(p, st) {
-  return !!(st && p && p.team && st.specialLabel && /Extra Point$/.test(st.specialLabel) && st.specialTeam && st.specialTeam !== p.team);
+// Batch 3 (2026-10-04): on a kickoff (incl. the post-field-goal kickoff label) the KICKING team's card shows only the pill (no circle/logo); the receiving team's card keeps circle + pill.
+function kickingCard(p, st) {
+  return !!(st && p && p.team && st.specialLabel && /Kickoff$/.test(st.specialLabel) && st.specialTeam === p.team);
 }
 // Pure per-card perspective view. p = cfg player, g = that team's game ({home, away,...}), st = derived
 // state or null. Returns null when there is nothing live to show (card keeps its pregame text), else
@@ -1566,15 +1594,14 @@ function cardView(p, g, st) {
   let score;
   if (st.gamestate === 'FINAL' && hasScores) {
     const result = ownScore > oppScore ? 'W' : (ownScore < oppScore ? 'L' : 'T');
-    score = result + ' ' + ownScore + ' - ' + oppScore + ' ' + vsOrAt + ' ' + oppAbbr;
+    score = result + ' ' + ownScore + ' - ' + oppScore + '\u2003' + vsOrAt + ' ' + oppAbbr; // em-space (not collapsed) before VS|@ OPP
   } else {
-    score = (hasScores ? (ownScore + ' - ' + oppScore) : '--') + ' ' + vsOrAt + ' ' + oppAbbr; // in-game: score then VS|@ OPP (same tail as FINAL)
+    score = (hasScores ? (ownScore + ' - ' + oppScore) : '--') + '\u2003' + vsOrAt + ' ' + oppAbbr; // in-game: score, em-space, VS|@ OPP (same tail as FINAL)
   }
   const terminal = st.gamestate === 'HALFTIME' || st.gamestate === 'FINAL';
   let situation = null;
   if (!terminal) {
-    if (xpDefense(p, st)) situation = p.team + ' on Defense';
-    else if (st.specialLabel) situation = st.specialLabel;
+    if (st.specialLabel) situation = st.specialLabel;
     else if (st.endZone && st.possession === p.team) situation = 'End Zone';
     else if (st.possession && st.possession !== p.team) situation = p.team + ' on Defense';
     else if (st.down && st.distance != null) situation = (ordinal(st.down) + ' & ' + st.distance + ' @ ' + (st.fieldTeam || '') + ' ' + (st.fieldYards != null ? st.fieldYards : '')).trim();
@@ -1695,7 +1722,7 @@ async function pollOnce(state, deps) {
       (async function() {
         try {
           const plays = await deps.fetchGamePlays(state.cfg.season, key);
-          if (plays && plays.length) state.statesByGame[key] = deriveCurrentState(plays);
+          if (plays && plays.length) state.statesByGame[key] = deriveCurrentState(plays, gameByKey(state.games, key));
         } catch (e) { ok = false; errors.push(key + ' plays: ' + e.message); }
       })()
     ]);
@@ -1888,7 +1915,7 @@ function paintTrail(card, p, st) {
   let noMarker = false; // a team on defense shows the pill only, no circle/logo
   if (st.gamestate === 'HALFTIME' || st.specialLabel) {
     pct = 0; defense = true; mode = 'ahead';
-    if (st.gamestate === 'HALFTIME' || xpDefense(p, st)) noMarker = true;
+    if (st.gamestate === 'HALFTIME' || kickingCard(p, st)) noMarker = true;
   } else if (st.possession && st.possession !== p.team) {
     pct = 0; defense = true; mode = 'ahead'; noMarker = true;
   } else if (st.possession === p.team) {
@@ -1997,6 +2024,10 @@ function paintTickers(tickers) {
   }
 }
 
+// Batch 3: /scores says the game is over but the plays feed has not (yet) delivered its game_over record (the single final fetch can run first) => show the card as FINAL from the last known scores.
+function finalizedState(st) {
+  return Object.assign({}, st, { gamestate: 'FINAL', clockStr: '', possession: null, specialLabel: null, specialTeam: null, endZone: false, down: null, distance: null });
+}
 // Per card, from its own game state: clock + score text, the situation pill + trail row, the collapsed/live layout,
 // and the live projection. No state yet (pregame) leaves the card as built (collapsed, pregame text).
 function paintStates(cfg, games, sts) {
@@ -2010,7 +2041,8 @@ function paintStates(cfg, games, sts) {
     const card = cards[i];
     const p = byPid[card.getAttribute('data-pid')];
     const g = (p && games) ? games[p.team] : null;
-    const st = (g && g.gameKey && sts) ? sts[g.gameKey] : null;
+    let st = (g && g.gameKey && sts) ? sts[g.gameKey] : null;
+    if (st && g && g.isOver && st.gamestate !== 'FINAL') st = finalizedState(st);
     const v = cardView(p, g, st);
     if (!v) {
       // No game state yet (pregame / bye): the points slot shows '-' unless real non-zero points already exist.
