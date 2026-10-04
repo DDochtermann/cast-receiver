@@ -432,6 +432,15 @@
   animation: pc-delta-float 5s linear forwards;
 }
 #lane-matchup .matchup-side.opp .player-card .pc-delta { right: auto; left: calc(3 * var(--u)); }
+/* Display tweaks (2026-10-04): negative deltas yellow-orange; defense cards never show the trail row; a team on defense shows the pill without the marker circle/logo; bottom-bar lineup sums (own left, opp mirrored right). */
+#lane-matchup .player-card .pc-delta.neg { color: #ffb020; }
+#lane-matchup .player-card.is-def .pc-trail { display: none; }
+#lane-matchup .pc-marker.no-marker { display: none; }
+#lane-matchup #bottom-box { display: flex; flex-direction: row; align-items: center; justify-content: space-between; padding: 0 calc(14 * var(--u)); color: #fff; }
+#lane-matchup #bottom-box .bb-side { display: flex; flex-direction: row; align-items: baseline; gap: calc(6 * var(--u)); }
+#lane-matchup #bottom-box .bb-side.opp { flex-direction: row-reverse; }
+#lane-matchup #bottom-box .bb-pts { font-size: calc(17.424 * var(--u)); font-weight: 700; line-height: 1; }
+#lane-matchup #bottom-box .bb-proj { font-size: calc(9.515 * var(--u)); color: #ccc; line-height: 1; }
 @keyframes pc-delta-float {
   0% { opacity: 0; transform: translateY(0); }
   2% { opacity: 1; }
@@ -1490,7 +1499,7 @@ function deriveCurrentState(plays) {
 
   const label = specialLabelForPlay(nm);
   if (label) {
-    return { clockStr, gamestate: 'LIVE', awayPts, homePts, possession: nm.possession, specialLabel: label, endZone: false, down: null, distance: null };
+    return { clockStr, gamestate: 'LIVE', awayPts, homePts, possession: nm.possession, specialLabel: label, specialTeam: nm.team || nm.possession, endZone: false, down: null, distance: null };
   }
   if (nm.is_scoring_play) {
     return { clockStr, gamestate: 'LIVE', awayPts, homePts, possession: nm.possession, specialLabel: null, endZone: true, down: null, distance: null };
@@ -1537,6 +1546,10 @@ function fieldDotPct(p, st) {
 // Own column progresses left->right (own goal at the screen edge), opp column right->left (mirrored).
 function dotLeftPct(side, pct) { return side === 'own' ? pct : 100 - pct; }
 
+// Display tweak (2026-10-04): on an extra-point / two-point play the team NOT attempting it shows '<TEAM> on Defense' (kickoffs keep their label on both cards).
+function xpDefense(p, st) {
+  return !!(st && p && p.team && st.specialLabel && /Extra Point$/.test(st.specialLabel) && st.specialTeam && st.specialTeam !== p.team);
+}
 // Pure per-card perspective view. p = cfg player, g = that team's game ({home, away,...}), st = derived
 // state or null. Returns null when there is nothing live to show (card keeps its pregame text), else
 // { clock, score, situation } where situation === null means HIDE the row (halftime/final).
@@ -1562,7 +1575,8 @@ function cardView(p, g, st) {
   const terminal = st.gamestate === 'HALFTIME' || st.gamestate === 'FINAL';
   let situation = null;
   if (!terminal) {
-    if (st.specialLabel) situation = st.specialLabel;
+    if (xpDefense(p, st)) situation = p.team + ' on Defense';
+    else if (st.specialLabel) situation = st.specialLabel;
     else if (st.endZone && st.possession === p.team) situation = 'End Zone';
     else if (st.possession && st.possession !== p.team) situation = p.team + ' on Defense';
     else if (st.down && st.distance != null) situation = (ordinal(st.down) + ' & ' + st.distance + ' @ ' + (st.fieldTeam || '') + ' ' + (st.fieldYards != null ? st.fieldYards : '')).trim();
@@ -1744,7 +1758,7 @@ if (typeof window !== 'undefined') {
 function spawnPointDelta(card, text) {
   const body = card.querySelector('.pc-body');
   if (!body) return;
-  const el = mkEl('div', 'pc-delta', text);
+  const el = mkEl('div', 'pc-delta' + (String(text).charAt(0) === '-' ? ' neg' : ''), text);
   body.appendChild(el);
   setTimeout(function() { if (el.parentNode) el.parentNode.removeChild(el); }, 5200);
 }
@@ -1805,9 +1819,12 @@ function paintProjection(card) {
   el.style.color = '';
   if (card._proj == null) return;
   const proj = card._proj;
+  card._projShown = proj;
   el.textContent = fmtPts(proj);
   if (card._frac == null || card._actual == null) return;
-  const est = card._actual + proj * card._frac;
+  let est = card._actual + proj * card._frac;
+  if (card._isDef) est = Math.min(card._actual, est); // defense: the lesser of the current points and the usual math
+  card._projShown = est;
   el.textContent = fmtPts(est);
   if (proj > 0) {
     if (est <= proj * 0.8) el.style.color = '#f28b82';
@@ -1823,6 +1840,7 @@ function paintTrail(card, p, st) {
   const marker = card._marker;
   const fill = card._fill;
   if (!marker || !fill) return;
+  if (card._isDef) return; // defense cards never show the trail row (hidden in CSS)
   const isOwn = (card._side === 'own');
   const wasVisible = marker.classList.contains('visible');
   if (!st || st.gamestate === 'FINAL') {
@@ -1833,10 +1851,12 @@ function paintTrail(card, p, st) {
   let pct = null; // yards from this card's own goal line (0-100)
   let mode = 'center';
   let defense = false;
+  let noMarker = false; // a team on defense shows the pill only, no circle/logo
   if (st.gamestate === 'HALFTIME' || st.specialLabel) {
     pct = 0; defense = true; mode = 'ahead';
+    if (xpDefense(p, st)) noMarker = true;
   } else if (st.possession && st.possession !== p.team) {
-    pct = 0; defense = true; mode = 'ahead';
+    pct = 0; defense = true; mode = 'ahead'; noMarker = true;
   } else if (st.possession === p.team) {
     if (st.endZone) {
       pct = 100;
@@ -1853,6 +1873,7 @@ function paintTrail(card, p, st) {
   const els = [marker, fill, card._pill];
   if (!wasVisible) els.forEach(function(e) { e.classList.add('no-anim'); }); // jump, don't sweep in
   marker.classList.toggle('plain', defense);
+  marker.classList.toggle('no-marker', noMarker);
   marker.style.left = shownPct + '%';
   fill.style.width = defense ? '0' : (5 + 0.9 * pct) + '%'; // trail ends at the ball
   const offU = placePill(card, mode, shownPct);
@@ -1879,6 +1900,34 @@ function paintTrail(card, p, st) {
   }
 }
 
+// Bottom bar (2026-10-04): per team, the sum of the lineup's current fantasy points (large, same size as a card's points)
+// followed by the sum of the lineup's displayed projections (small); own team left, opp mirrored on the right.
+function paintBottomBar() {
+  const bar = document.getElementById('bottom-box');
+  if (!bar) return;
+  const sums = { own: { pts: 0, proj: 0, anyPts: false, n: 0 }, opp: { pts: 0, proj: 0, anyPts: false, n: 0 } };
+  const cards = document.querySelectorAll('#lane-matchup .player-card[data-pid]');
+  for (let i = 0; i < cards.length; i++) {
+    const s = sums[cards[i]._side];
+    if (!s) continue;
+    s.n++;
+    if (cards[i]._actual != null) { s.pts += cards[i]._actual; s.anyPts = true; }
+    if (cards[i]._projShown != null) s.proj += cards[i]._projShown;
+  }
+  ['own', 'opp'].forEach(function(k) {
+    let side = bar.querySelector('.bb-side.' + k);
+    if (!side) {
+      side = mkEl('div', 'bb-side ' + k);
+      side.appendChild(mkEl('span', 'bb-pts', ''));
+      side.appendChild(mkEl('span', 'bb-proj', ''));
+      bar.appendChild(side);
+    }
+    side.style.display = sums[k].n ? '' : 'none';
+    side.querySelector('.bb-pts').textContent = sums[k].anyPts ? fmtPts(sums[k].pts) : '-';
+    side.querySelector('.bb-proj').textContent = fmtPts(sums[k].proj);
+  });
+}
+
 function paintPoints(pts) {
   const cards = document.querySelectorAll('#lane-matchup .player-card[data-pid]');
   for (let i = 0; i < cards.length; i++) {
@@ -1890,6 +1939,7 @@ function paintPoints(pts) {
       paintProjection(cards[i]);
     }
   }
+  paintBottomBar();
 }
 
 // Writes each card's cumulative stat line into .pc-stats (only cards present in `lines`).
@@ -1953,6 +2003,7 @@ function paintStates(cfg, games, sts) {
     if (card._stats) refitStatLine(card._stats); // collapsed state changes the card width => re-measure
     paintTrail(card, p, st);
   }
+  paintBottomBar();
 }
 
 // Timer loop around pollOnce. Returns { stop() }. While only WAIT games remain it just sleeps (re-planning
@@ -2000,6 +2051,8 @@ function buildCard(p, cfg, games) {
   if (p.playerId) card.setAttribute('data-pid', p.playerId);
   card.style.setProperty('--pos-color', POSITION_COLORS[p.pos] || '#999');
   card._side = p.side;
+  card._isDef = (p.pos === 'DEF' || p.slot === 'DEF');
+  if (card._isDef) card.classList.add('is-def');
   const nameDiv = mkEl('div', 'pc-name');
   nameDiv.appendChild(mkEl('span', 'pc-name-text', p.empty ? '(empty)' : formatMatchupName(p)));
   nameDiv.appendChild(mkEl('span', 'pc-actual-pts', p.empty ? '' : '-')); // '-' until the game has state / points
@@ -2014,6 +2067,7 @@ function buildCard(p, cfg, games) {
   card._projEl = projEl;
   card._proj = (!p.empty && p.projStats) ? leagueComputedProj(p.projStats, cfg.scoring) : null;
   if (card._proj != null) projEl.textContent = fmtPts(card._proj);
+  card._projShown = card._proj;
   // Outer-edge tab: vertical #NUMBER (when known, from ESPN via attachJerseyNumbers; hidden when collapsed), TEAM, POS.
   const tab = mkEl('div', 'pc-tab');
   if (!p.empty && p.number) tab.appendChild(mkEl('span', 'pc-tab-num', '#' + p.number));
@@ -2088,8 +2142,8 @@ function renderCards(cfg, games) {
     const host = side.side === 'own' ? ownEl : oppEl;
     side.players.forEach(function(p) { host.appendChild(buildCard(p, cfg, games)); });
   });
+  paintBottomBar();
 }
-
   // ==== END SHARED JS ====
 
   // ---- receiver glue (NOT part of the shared region) ----
