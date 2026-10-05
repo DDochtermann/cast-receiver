@@ -1969,7 +1969,8 @@ function paintTrail(card, p, st) {
 }
 
 // Bottom bar (2026-10-04): per team, the sum of the lineup's current fantasy points (large, same size as a card's points)
-// followed by the sum of the lineup's displayed projections (small); own team left, opp mirrored on the right.
+// followed by the team projection total, per card in priority order: game complete -> its actual points; in progress -> its live
+// projection; not started -> its pregame projection (small); own team left, opp mirrored on the right.
 function paintBottomBar() {
   const bar = document.getElementById('bottom-box');
   if (!bar) return;
@@ -1980,7 +1981,8 @@ function paintBottomBar() {
     if (!s) continue;
     s.n++;
     if (cards[i]._actual != null) { s.pts += cards[i]._actual; s.anyPts = true; }
-    if (cards[i]._projShown != null) s.proj += cards[i]._projShown;
+    if (cards[i]._final && cards[i]._actual != null) s.proj += cards[i]._actual; // game complete: actual points
+    else if (cards[i]._projShown != null) s.proj += cards[i]._projShown; // in progress: live projection; not started: pregame projection
   }
   ['own', 'opp'].forEach(function(k) {
     let side = bar.querySelector('.bb-side.' + k);
@@ -2071,6 +2073,7 @@ function paintStates(cfg, games, sts) {
       pill.textContent = (st.gamestate === 'HALFTIME') ? 'HALFTIME' : v.situation;
     }
     card.classList.toggle('collapsed', isFinal);
+    card._final = isFinal; // bottom-bar team projection total uses ACTUAL points for a finished game
     card._frac = liveFraction(st);
     paintProjection(card);
     if (card._stats) refitStatLine(card._stats); // collapsed state changes the card width => re-measure
