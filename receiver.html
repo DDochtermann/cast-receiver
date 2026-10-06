@@ -2824,6 +2824,7 @@ function renderCards(cfg, games) {
     // only -- does not fix the underlying thin-window source, just makes CAF more tolerant of it.
     const playbackConfig = new cast.framework.PlaybackConfig();
     playbackConfig.autoResumeNumberOfSegments = 2; // S4.4b (2026-10-02): was 1 (887c622); 2 still fits the thinnest window we cast (4 segs)
+    playbackConfig.shakaConfig = { manifest: { hls: { liveSegmentsDelay: 1 } } }; // S4.4g (2026-10-04): HLS default joins 3 segments back, which on a 4-seg x 3.75 s playlist leaves a ~3.75 s seekable window (stalled playhead gets overtaken -> seek + buffer flush + refetch loop); 1 => ~3-segment (~11 s) window. Revert = delete this line.
     receiverOptions.playbackConfig = playbackConfig;
 
     // S4.4b stall watchdog (2026-10-02): on-TV stalls were a slow segment fetch (13.8s vs ~0.3s typical)
