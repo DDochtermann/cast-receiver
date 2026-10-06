@@ -762,6 +762,40 @@
           emit(note ? 'warn' : 'log', 'playlist seq ' + seq + ' segs ' + n + ' target ' + (td ? td[1] : '?') + ' ' + flags + 'hdr ' + rec.hdr + ' ms ' + (note || ''));
         }
       }
+      // ---- S4.4h (2026-10-05): segment BODY format sampling (is the fetched segment MPEG-TS or fMP4?). Diagnostics only. ----
+      // The append hook (sigOf) only sees what is appended to MSE; this inspects what was FETCHED. Samples the first 3 segments then
+      // every 15th (a clone tee costs CPU/memory on a starved device), reads ONLY the first chunk of the clone's stream, then cancels it.
+      var F = { seen: 0, ts: 0, mp4: 0, other: 0, err: 0, ct: null };
+      function segFmtOf(u) {
+        var n = u.length, hx = [], i;
+        for (i = 0; i < Math.min(8, n); i++) hx.push((u[i] < 16 ? '0' : '') + u[i].toString(16));
+        var hex = hx.join('');
+        if (u[0] === 0x47 && (n <= 188 || u[188] === 0x47) && (n <= 376 || u[376] === 0x47)) return { k: 'ts', d: 'sync 0x47 @0/188/376, first chunk ' + n + ' B', hex: hex };
+        if (n >= 8) {
+          var b = String.fromCharCode(u[4], u[5], u[6], u[7]);
+          if (/^(ftyp|styp|moof|moov|sidx|emsg)$/.test(b)) return { k: 'mp4', d: 'box ' + b + ', first chunk ' + n + ' B', hex: hex };
+        }
+        return { k: 'other', d: 'unrecognized, first chunk ' + n + ' B', hex: hex };
+      }
+      function sampleSeg(rec, resp) {
+        F.seen++;
+        if (!(F.seen <= 3 || F.seen % 15 === 0)) return;
+        var ct = null;
+        try { ct = resp.headers.get('content-type'); } catch (e) {}
+        F.ct = ct;
+        var body = null;
+        try { body = resp.clone().body; } catch (e) {}
+        if (!body || typeof body.getReader !== 'function') { F.err++; emit('log', 'SEGFMT #' + F.seen + ' body stream unavailable ct=' + ct + ' len=' + (rec.len || '?')); return; }
+        var rd = body.getReader();
+        rd.read().then(function (r) {
+          try { rd.cancel(); } catch (e) {}
+          var u = r && r.value;
+          if (!u || !u.length) { F.err++; emit('log', 'SEGFMT #' + F.seen + ' empty first chunk ct=' + ct); return; }
+          var f = segFmtOf(u);
+          F[f.k]++;
+          emit('log', 'SEGFMT #' + F.seen + ' ' + f.k + ' (' + f.d + ') ct=' + ct + ' len=' + (rec.len || '?') + ' hex=' + f.hex + ' muxjs=' + (typeof window.muxjs));
+        }, function (er) { try { rd.cancel(); } catch (e) {} F.err++; emit('log', 'SEGFMT read failed: ' + er); });
+      }
       function endReq(rec, resp) {
         delete inflight[rec.id];
         rec.hdr = Math.round(performance.now() - rec.t);
@@ -780,6 +814,7 @@
         if (rec.k === 'pl' && resp.ok) {
           resp.clone().text().then(function (txt) { try { parsePlaylist(rec, txt); } catch (e) {} }, function () {});
         }
+        if (rec.k === 'seg' && resp.ok) { try { sampleSeg(rec, resp); } catch (e) {} }
       }
       function failReq(rec, err) {
         delete inflight[rec.id];
@@ -1069,7 +1104,8 @@
                        parseAvg: S.slJson ? Math.round(S.slParseSum / S.slJson) : null, parseMaxWin: S.slParseWin, parseMax: S.slParseMax,
                        kb: Math.round(S.slBytes / 1024), overlapMax: S.slOverlapMax },
             mse: mseSummary(),
-            shaka: sstats()
+            shaka: sstats(),
+            segFmt: { n: F.seen, ts: F.ts, mp4: F.mp4, other: F.other, err: F.err, ct: F.ct }
           };
           S.lagWin = 0; S.slParseWin = 0; S.slReadWin = 0; M.aWin = 0; M.sWin = 0;
           var s = snap();
@@ -1090,7 +1126,7 @@
           return 'pollOff=' + this.pollOff;
         }
       };
-      emit('log', 'diagnostics armed (S4.4f: console.log only, Sleeper timing, long-task attribution, MSE append timing, Shaka internals; observation only unless __diag.pollOff). ua=' + navigator.userAgent);
+      emit('log', 'diagnostics armed (S4.4h: segment body format sampling + console.log only, Sleeper timing, long-task attribution, MSE append timing, Shaka internals; observation only unless __diag.pollOff). ua=' + navigator.userAgent);
       try {
         if (window.PerformanceObserver && PerformanceObserver.supportedEntryTypes) emit('log', 'perf entry types: ' + PerformanceObserver.supportedEntryTypes.join(','));
       } catch (e) {}
