@@ -1181,7 +1181,7 @@ async function loadTeams(leagueId) {
   return rosters.map(function(r) {
     const u = byOwner[r.owner_id] || {};
     const teamName = (u.metadata && u.metadata.team_name) || u.display_name || ('Team ' + r.roster_id);
-    return { rosterId: r.roster_id, ownerId: r.owner_id, name: teamName, owner: u.display_name || '' };
+    return { rosterId: r.roster_id, ownerId: r.owner_id, name: teamName, owner: u.display_name || '', reserve: r.reserve || [], taxi: r.taxi || [] };
   }).sort(function(a, b) { return a.rosterId - b.rosterId; });
 }
 
@@ -1235,7 +1235,28 @@ async function resolveMatchup(leagueId, week, rosterId, projMap) {
         projStats: row ? row.stats : null
       });
     });
-    return { side: side, rosterId: m.roster_id, team: teamById[m.roster_id] || null, players: players };
+    // Bench (2026-10-09, stage 3): own side only. m.players (whole roster) minus starters, IR (reserve), taxi and DEF units; players without a projection row are skipped (no name to show).
+    // No projStats / jersey number: the play feed only needs the name, position and team. The opponent side gets an empty list.
+    const tm = teamById[m.roster_id] || null;
+    const bench = [];
+    if (side === 'own') {
+      const skip = {};
+      starters.forEach(function(x) { skip[String(x)] = true; });
+      ((tm && tm.reserve) || []).concat((tm && tm.taxi) || []).forEach(function(x) { skip[String(x)] = true; });
+      (m.players || []).forEach(function(pid) {
+        const id = String(pid);
+        if (skip[id] || !/^\d+$/.test(id)) return;
+        const row = projMap ? projMap[id] : null;
+        const p = row && row.player;
+        if (!p) return;
+        const nm = ((p.first_name || '') + ' ' + (p.last_name || '')).trim();
+        if (!nm) return;
+        bench.push({ side: side, slot: 'BN', playerId: id, name: nm, pos: p.position || (p.fantasy_positions && p.fantasy_positions[0]) || '?', team: p.team || null });
+      });
+    }
+    const teamOut = tm ? Object.assign({}, tm) : null;
+    if (teamOut) { delete teamOut.reserve; delete teamOut.taxi; }
+    return { side: side, rosterId: m.roster_id, team: teamOut, players: players, bench: bench };
   }
 
   const cfg = {
@@ -1427,11 +1448,13 @@ function gameByKey(games, gameKey) {
   for (let i = 0; i < ks.length; i++) { if (games[ks[i]] && games[ks[i]].gameKey === gameKey) return games[ks[i]]; }
   return null;
 }
+// Starters plus the own side's bench (stage 3): polling, point totals and the play feed cover both; cards, the bottom bar and win pct stay on side.players.
+function sidePlayers(side) { return (side.players || []).concat(side.bench || []); }
 function relevantGames(cfg, games) {
   const out = {};
   [cfg.own, cfg.opp].forEach(function(side) {
     if (!side) return;
-    side.players.forEach(function(p) {
+    sidePlayers(side).forEach(function(p) {
       if (p.empty || !p.team || !games || !games[p.team]) return;
       out[p.team] = games[p.team];
     });
@@ -1443,7 +1466,7 @@ function idsForGame(cfg, games, gameKey) {
   const ids = [];
   [cfg.own, cfg.opp].forEach(function(side) {
     if (!side) return;
-    side.players.forEach(function(p) {
+    sidePlayers(side).forEach(function(p) {
       if (p.empty || !p.playerId || !p.team) return;
       const g = games ? games[p.team] : null;
       if (g && g.gameKey === gameKey) ids.push(p.playerId);
@@ -1492,7 +1515,7 @@ function computeCardPoints(cfg, statsByGame, games) {
   const out = {};
   [cfg.own, cfg.opp].forEach(function(side) {
     if (!side) return;
-    side.players.forEach(function(p) {
+    sidePlayers(side).forEach(function(p) {
       if (p.empty || !p.playerId) return;
       const g = games ? games[p.team] : null;
       const rows = (g && g.gameKey) ? statsByGame[g.gameKey] : null;
@@ -1735,7 +1758,7 @@ function computeCounterSigs(cfg, statsByGame, games) {
   const out = {};
   [cfg.own, cfg.opp].forEach(function(side) {
     if (!side) return;
-    side.players.forEach(function(p) {
+    sidePlayers(side).forEach(function(p) {
       if (p.empty || !p.playerId || p.pos === 'DEF') return;
       const g = games ? games[p.team] : null;
       const rows = (g && g.gameKey) ? statsByGame[g.gameKey] : null;
@@ -1770,7 +1793,7 @@ function computeFeedItems(cfg, statsByGame, games, lastStats, tickers) {
   const out = [];
   [cfg.own, cfg.opp].forEach(function(side) {
     if (!side) return;
-    side.players.forEach(function(p) {
+    sidePlayers(side).forEach(function(p) {
       if (p.empty || !p.playerId || p.pos === 'DEF' || p.slot === 'DEF') return;
       const g = games ? games[p.team] : null;
       const rows = (g && g.gameKey) ? statsByGame[g.gameKey] : null;
@@ -1778,7 +1801,7 @@ function computeFeedItems(cfg, statsByGame, games, lastStats, tickers) {
       const next = rows[p.playerId], prev = lastStats[p.playerId];
       lastStats[p.playerId] = Object.assign({}, next);
       if (!prev || !tickers || !tickers[p.playerId]) return;
-      out.push({ pid: p.playerId, align: p.side === 'opp' ? 'right' : 'left', text: formatMatchupName(p) + ' ' + feedBody(feedDiff(prev, next)), pts: String(tickers[p.playerId]) });
+      out.push({ pid: p.playerId, align: p.side === 'opp' ? 'right' : 'left', text: (p.slot === 'BN' ? '[BN] ' : '') + formatMatchupName(p) + ' ' + feedBody(feedDiff(prev, next)), pts: String(tickers[p.playerId]) });
     });
   });
   return out;
@@ -2418,7 +2441,15 @@ function renderCards(cfg, games) {
       if (!np) return null;
       players.push(np);
     }
-    return { side: side, rosterId: s.rosterId == null ? null : s.rosterId, team: (s.team && typeof s.team === 'object') ? { name: String(s.team.name || '') } : null, players: players };
+    // Bench (2026-10-09, stage 3): optional and fail-soft -- a bad or duplicate entry is dropped, the config is never rejected over the bench. Own side only in practice.
+    const bench = [];
+    if (Array.isArray(s.bench)) {
+      for (let j = 0; j < s.bench.length && bench.length < 40; j++) {
+        const nb = normPlayer(s.bench[j], side, seen);
+        if (nb && !nb.empty) { nb.slot = 'BN'; nb.projStats = null; nb.number = null; bench.push(nb); }
+      }
+    }
+    return { side: side, rosterId: s.rosterId == null ? null : s.rosterId, team: (s.team && typeof s.team === 'object') ? { name: String(s.team.name || '') } : null, players: players, bench: bench };
   }
   // Validate BEFORE applying anything: a bad CONFIG must never half-update the screen (same rule as the 3-card applyConfig).
   function validateConfig(cfg) {
