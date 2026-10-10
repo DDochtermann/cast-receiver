@@ -80,14 +80,14 @@
   /* ---- S4.1 matchup mode: region between the BEGIN/END markers is generated from matchup.html ---- */
   /* BEGIN SHARED CSS */
 :root { --screen-vw: 1vw; }
-  /* Bottom-middle box (2026-10-03): empty placeholder card peering in from the bottom edge of the screen, centered. 1100 x 30 at the 1920 reference, screen-scaled like the cards; card look (same bg), rounded TOP corners only (~12 card units). No content yet. */
+  /* Bottom-middle box (2026-10-03): empty placeholder card peering in from the bottom edge of the screen, centered. 800 x 28 at the 1920 reference (was 1100 x 30 until 2026-10-09), screen-scaled like the cards; card look (same bg), rounded TOP corners only (~12 card units). No content yet. */
   #bottom-box {
     position: absolute;
     left: 50%;
     bottom: 0;
     transform: translateX(-50%);
-    width: calc(1100 / 1920 * (100 * var(--screen-vw)));
-    height: calc(30 / 1920 * (100 * var(--screen-vw)));
+    width: calc(800 / 1920 * (100 * var(--screen-vw)));
+    height: calc(28 / 1920 * (100 * var(--screen-vw)));
     background: rgba(6, 12, 24, 0.72);
     border-radius: calc(18.7 / 1920 * (100 * var(--screen-vw))) calc(18.7 / 1920 * (100 * var(--screen-vw))) 0 0;
     box-sizing: border-box;
@@ -439,11 +439,24 @@
 #lane-matchup .player-card .pc-delta.neg { color: #ffb020; }
 #lane-matchup .player-card.is-def .pc-trail { display: none; }
 #lane-matchup .pc-marker.no-marker { display: none; }
-#lane-matchup #bottom-box { display: flex; flex-direction: row; align-items: center; justify-content: space-between; padding: 0 calc(14 * var(--u)); color: #fff; }
-#lane-matchup #bottom-box .bb-side { display: flex; flex-direction: row; align-items: baseline; gap: calc(6 * var(--u)); }
+#lane-matchup #bottom-box { display: flex; flex-direction: row; align-items: center; justify-content: space-between; padding: 0 calc(5 * var(--u)); color: #fff; }
+#lane-matchup #bottom-box .bb-side { display: flex; flex-direction: row; align-items: baseline; gap: 0; }
 #lane-matchup #bottom-box .bb-side.opp { flex-direction: row-reverse; }
-#lane-matchup #bottom-box .bb-pts { font-size: calc(17.424 * var(--u)); font-weight: 700; line-height: 1; }
-#lane-matchup #bottom-box .bb-proj { font-size: calc(9.515 * var(--u)); color: #ccc; line-height: 1; }
+#lane-matchup #bottom-box .bb-pts { font-size: calc(17.424 * var(--u)); font-weight: 700; line-height: 1; flex: none; width: 5.25ch; text-align: center; font-variant-numeric: tabular-nums; }
+#lane-matchup #bottom-box .bb-proj { font-size: calc(9.515 * var(--u)); color: #ccc; line-height: 1; flex: none; width: 5.25ch; text-align: center; font-variant-numeric: tabular-nums; }
+/* Win pct (2026-10-09): integer % left of the scored points (mirrored on opp), same size as the projection, green >= 51, red <= 49, gray at 50. The 2px bar runs along the box bottom: own grows from the left, opp from the right, each as wide as its win pct of the whole box. */
+#lane-matchup #bottom-box .bb-win { font-size: calc(9.515 * var(--u)); font-weight: 700; line-height: 1; flex: none; width: calc(3ch + 0.9em); text-align: center; font-variant-numeric: tabular-nums; }
+/* Fixed slots (2026-10-09): every bottom-bar item reserves its widest value (000.00 pts at 5.25ch, 100% win) so nothing shifts. Text is centered in its own slot. */
+#lane-matchup #bottom-box .bb-bar { position: absolute; bottom: 0; height: calc(2 * var(--u)); width: 0; pointer-events: none; transition: width 0.5s ease; }
+#lane-matchup #bottom-box .bb-bar.own { left: 0; }
+#lane-matchup #bottom-box .bb-bar.opp { right: 0; }
+/* Play feed (2026-10-09, port of debug-cards): one line between the two sides (own | feed | opp via order), left-justified for own cards, right-justified for opponent cards (.right), card-name size/weight, white with the delta in the card-delta green (negative = the card's yellow-orange). Fade is the opacity transition (0.5s), the 5s hold and the queue are timed in JS (playFeedNext). Caps come from #lane-matchup text-transform. */
+#lane-matchup #bottom-box .bb-side.own { order: 0; }
+#lane-matchup #bottom-box .bb-feed { order: 1; flex: 1 1 0; min-width: 0; margin: 0 calc(6 * var(--u)); text-align: left; font-size: calc(11.376 * var(--u)); font-weight: 700; line-height: 1; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0; transition: opacity 0.5s linear; pointer-events: none; }
+#lane-matchup #bottom-box .bb-feed.right { text-align: right; }
+#lane-matchup #bottom-box .bb-feed .bb-feed-pts { color: #4ade80; }
+#lane-matchup #bottom-box .bb-feed .bb-feed-pts.neg { color: #ffb020; }
+#lane-matchup #bottom-box .bb-side.opp { order: 2; }
 @keyframes pc-delta-float {
   0% { opacity: 0; transform: translateY(0); }
   2% { opacity: 1; }
@@ -1733,6 +1746,44 @@ function computeCounterSigs(cfg, statsByGame, games) {
   return out;
 }
 
+// Play feed text (2026-10-09, port of debug-cards): built from the change in a player's cumulative stats between two polls (the live path has no play log).
+// `7 YD rush` / `13 YD catch` / `23 YD catch, touchdown` (caps come from CSS); pass > catch > rush when one poll holds more than one kind; a change with
+// no yardage counter (fumble only) reads `fumble` / `fumble lost`. Two plays inside one poll merge into one line, exactly like the card's floating delta.
+const FEED_KEYS = ['rush_att', 'rush_yd', 'rush_td', 'rec', 'rec_tgt', 'rec_yd', 'rec_td', 'pass_att', 'pass_cmp', 'pass_yd', 'pass_td', 'fum', 'fum_lost'];
+function feedDiff(prev, next) {
+  const d = {};
+  FEED_KEYS.forEach(function(k) { d[k] = Number((next && next[k]) || 0) - Number((prev && prev[k]) || 0); });
+  return d;
+}
+function feedBody(d) {
+  const td = d.rush_td > 0 || d.rec_td > 0 || d.pass_td > 0;
+  let body;
+  if (d.pass_att > 0 || d.pass_cmp > 0 || d.pass_td > 0 || d.pass_yd !== 0) body = d.pass_yd + ' YD pass';
+  else if (d.rec > 0 || d.rec_tgt > 0 || d.rec_td > 0 || d.rec_yd !== 0) body = d.rec_yd + ' YD catch';
+  else if (d.rush_att > 0 || d.rush_td > 0 || d.rush_yd !== 0) body = d.rush_yd + ' YD rush';
+  else body = d.fum_lost > 0 ? 'fumble lost' : 'fumble';
+  return body + (td ? ', touchdown' : '');
+}
+// One entry per card whose delta survived the stat-adjustment filter (tickers): { pid, align, text, pts }. Own cards align left, opponent cards right.
+// DEF cards are skipped for now. Mutates lastStats (playerId -> the last stats row seen); the first sight of a player only seeds it, so no line fires.
+function computeFeedItems(cfg, statsByGame, games, lastStats, tickers) {
+  const out = [];
+  [cfg.own, cfg.opp].forEach(function(side) {
+    if (!side) return;
+    side.players.forEach(function(p) {
+      if (p.empty || !p.playerId || p.pos === 'DEF' || p.slot === 'DEF') return;
+      const g = games ? games[p.team] : null;
+      const rows = (g && g.gameKey) ? statsByGame[g.gameKey] : null;
+      if (!rows || !rows[p.playerId]) return;
+      const next = rows[p.playerId], prev = lastStats[p.playerId];
+      lastStats[p.playerId] = Object.assign({}, next);
+      if (!prev || !tickers || !tickers[p.playerId]) return;
+      out.push({ pid: p.playerId, align: p.side === 'opp' ? 'right' : 'left', text: formatMatchupName(p) + ' ' + feedBody(feedDiff(prev, next)), pts: String(tickers[p.playerId]) });
+    });
+  });
+  return out;
+}
+
 // One poll tick. state = { cfg, games, statsByGame, statesByGame, finalFetched, lastScoresMs, lastPoints }; deps = { now, fetchGames, fetchGamePlays,
 // fetchGameStats, paint }. Mutates state; returns { nextWakeMs, done, polled, errors }. Fetch errors keep
 // the previously stored stats (card keeps its last points) and are reported, never thrown.
@@ -1767,6 +1818,7 @@ async function pollOnce(state, deps) {
   }));
   state.lastPoints = state.lastPoints || {};
   state.lastSigs = state.lastSigs || {};
+  state.lastStats = state.lastStats || {};
   const pts = computeCardPoints(state.cfg, state.statsByGame, state.games);
   const sigs = computeCounterSigs(state.cfg, state.statsByGame, state.games);
   const tickers = updateTickers(state.lastPoints, pts);
@@ -1775,7 +1827,8 @@ async function pollOnce(state, deps) {
     if (sigs[pid] !== undefined && state.lastSigs[pid] !== undefined && sigs[pid] === state.lastSigs[pid]) delete tickers[pid];
   });
   Object.keys(sigs).forEach(function(pid) { state.lastSigs[pid] = sigs[pid]; });
-  deps.paint(pts, state.statesByGame, tickers);
+  const feed = computeFeedItems(state.cfg, state.statsByGame, state.games, state.lastStats, tickers);
+  deps.paint(pts, state.statesByGame, tickers, feed);
   const next = planPolls(relevantGames(state.cfg, state.games), state.finalFetched, deps.now(), state.lastScoresMs);
   return { nextWakeMs: next.nextWakeMs, done: next.done, polled: plan.pollKeys, errors: errors };
 }
@@ -1843,6 +1896,47 @@ if (typeof window !== 'undefined') {
   window.addEventListener('resize', refitAllStatLines);
   window.addEventListener('load', refitAllStatLines);
   if (typeof document !== 'undefined' && document.fonts && document.fonts.ready) document.fonts.ready.then(refitAllStatLines);
+}
+
+// Play feed (2026-10-09, port of debug-cards): one line in the bottom bar per scoring play, queued. Each entry fades in 0.5s, holds 5s, fades out 0.5s,
+// then the next one starts (6s each). Backlog from several plays in a row is intended. Stopping the poller clears it.
+const FEED_FADE_MS = 500, FEED_HOLD_MS = 5000;
+const feedQueue = [];
+let feedRunning = false;
+let feedTimers = [];
+function feedEl() {
+  const bar = document.getElementById('bottom-box');
+  if (!bar) return null;
+  let el = bar.querySelector('.bb-feed');
+  if (!el) { el = mkEl('div', 'bb-feed'); bar.appendChild(el); } // the CSS order puts it between the two sides whatever the DOM order
+  return el;
+}
+function feedLater(fn, ms) { feedTimers.push(setTimeout(fn, ms)); }
+function playFeedNext() {
+  const el = feedEl();
+  const item = feedQueue.shift();
+  if (!el || !item) { feedRunning = false; feedTimers = []; return; }
+  feedRunning = true;
+  el.textContent = '';
+  el.classList.toggle('right', item.align === 'right');
+  el.appendChild(document.createTextNode(item.text + ' '));
+  el.appendChild(mkEl('span', 'bb-feed-pts' + (item.pts.charAt(0) === '-' ? ' neg' : ''), item.pts));
+  void el.offsetWidth; // commit opacity 0 with the new text before fading in
+  el.style.opacity = '1';
+  feedLater(function() { el.style.opacity = '0'; }, FEED_FADE_MS + FEED_HOLD_MS);
+  feedLater(playFeedNext, FEED_FADE_MS * 2 + FEED_HOLD_MS);
+}
+function paintPlayFeed(feed) {
+  (feed || []).forEach(function(it) { feedQueue.push(it); });
+  if (feed && feed.length && !feedRunning) playFeedNext();
+}
+function clearPlayFeed() {
+  feedQueue.length = 0;
+  feedTimers.forEach(function(t) { clearTimeout(t); });
+  feedTimers = [];
+  feedRunning = false;
+  const el = document.getElementById('bottom-box') ? document.getElementById('bottom-box').querySelector('.bb-feed') : null;
+  if (el) { el.style.opacity = '0'; el.textContent = ''; }
 }
 
 // Point delta: a fresh element per scoring play over the fantasy-points total (CSS keyframes do the 5s fade/rise).
@@ -2004,6 +2098,27 @@ function paintTrail(card, p, st) {
   }
 }
 
+// Win probability (back-derived from Sleeper's displayed values, 2026-10-09, see projects\cast-overlay\history.md): p(A) = Phi((projA - projB) / sigma), sigma = sqrt(sA^2 + sB^2), sX = 0.30 * projX^0.38 * remX^0.62, remX = projX - scoredX. proj is the team's final projection (finished cards count their actual points). Display: integer, clamped to 1..99 while anything is live, 0/100 (50 on a tie) only when every card is final.
+const WIN_K = 0.30, WIN_Q = 0.62;
+const WIN_GREEN = '#45e6a7', WIN_RED = '#F75C8D', WIN_EVEN = '#9aa3ad';
+function winNormCdf(x) {
+  const t = 1 / (1 + 0.2316419 * Math.abs(x));
+  const u = 0.3989423 * Math.exp(-x * x / 2) * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274))));
+  return x > 0 ? 1 - u : u;
+}
+function winTeamSigma(team) {
+  const rem = Math.max(team.proj - team.pts, 0);
+  if (rem <= 0 || team.proj <= 0) return 0;
+  return WIN_K * Math.pow(team.proj, 1 - WIN_Q) * Math.pow(rem, WIN_Q);
+}
+function winPctOwn(own, opp, allFinal) {
+  if (allFinal) return own.pts > opp.pts ? 100 : (own.pts < opp.pts ? 0 : 50);
+  const sa = winTeamSigma(own), sb = winTeamSigma(opp);
+  const sigma = Math.sqrt(sa * sa + sb * sb);
+  const margin = own.proj - opp.proj;
+  const p = sigma > 0 ? winNormCdf(margin / sigma) : (margin > 0 ? 1 : (margin < 0 ? 0 : 0.5));
+  return Math.min(99, Math.max(1, Math.round(p * 100)));
+}
 // Bottom bar (2026-10-04): per team, the sum of the lineup's current fantasy points (large, same size as a card's points)
 // followed by the team projection total, per card in priority order: game complete -> its actual points; in progress -> its live
 // projection; not started -> its pregame projection (small); own team left, opp mirrored on the right.
@@ -2011,26 +2126,42 @@ function paintBottomBar() {
   const bar = document.getElementById('bottom-box');
   if (!bar) return;
   const sums = { own: { pts: 0, proj: 0, anyPts: false, n: 0 }, opp: { pts: 0, proj: 0, anyPts: false, n: 0 } };
+  let allFinal = true; // every card on both sides is final: only then the win pct may show 0 / 100
   const cards = document.querySelectorAll('#lane-matchup .player-card[data-pid]');
   for (let i = 0; i < cards.length; i++) {
     const s = sums[cards[i]._side];
     if (!s) continue;
     s.n++;
+    if (!cards[i]._final) allFinal = false;
     if (cards[i]._actual != null) { s.pts += cards[i]._actual; s.anyPts = true; }
     if (cards[i]._final && cards[i]._actual != null) s.proj += cards[i]._actual; // game complete: actual points
     else if (cards[i]._projShown != null) s.proj += cards[i]._projShown; // in progress: live projection; not started: pregame projection
   }
+  const winOwn = (sums.own.n && sums.opp.n) ? winPctOwn(sums.own, sums.opp, allFinal) : null; // own team win pct, integer
   ['own', 'opp'].forEach(function(k) {
     let side = bar.querySelector('.bb-side.' + k);
     if (!side) {
       side = mkEl('div', 'bb-side ' + k);
+      side.appendChild(mkEl('span', 'bb-win', ''));
       side.appendChild(mkEl('span', 'bb-pts', ''));
       side.appendChild(mkEl('span', 'bb-proj', ''));
+      side.appendChild(mkEl('div', 'bb-bar ' + k));
       bar.appendChild(side);
     }
     side.style.display = sums[k].n ? '' : 'none';
     side.querySelector('.bb-pts').textContent = sums[k].anyPts ? fmtPts(sums[k].pts) : '-';
     side.querySelector('.bb-proj').textContent = fmtPts(sums[k].proj);
+    // win pct text (left of the scored points, mirrored on opp) and the 2px bottom bar: own grows from the left, opp from the right, together they tile the full width
+    const pct = (winOwn === null) ? null : (k === 'own' ? winOwn : 100 - winOwn);
+    const col = (pct === null) ? '' : (pct >= 51 ? WIN_GREEN : (pct <= 49 ? WIN_RED : WIN_EVEN));
+    const winEl = side.querySelector('.bb-win');
+    winEl.style.visibility = (pct === null) ? 'hidden' : '';
+    winEl.textContent = (pct === null) ? '' : pct + '%';
+    winEl.style.color = col;
+    const barEl = side.querySelector('.bb-bar');
+    barEl.style.width = (pct === null) ? '0' : pct + '%';
+    // all games final and the left team lost (0%, confirmed): the filled bar (the opp's, full width) turns red instead of green
+    barEl.style.background = (allFinal && winOwn === 0) ? WIN_RED : col;
   });
 }
 
@@ -2128,7 +2259,7 @@ function startPoller(cfg, games, setStatus) {
     fetchGames: fetchGames,
     fetchGameStats: fetchGameStats,
     fetchGamePlays: fetchGamePlays,
-    paint: function(pts, sts, tk) { if (!stopped) { paintPoints(pts); paintStates(state.cfg, state.games, sts); paintStatLines(computeStatLines(state.cfg, state.statsByGame, state.games)); paintTickers(tk); } }
+    paint: function(pts, sts, tk, feed) { if (!stopped) { paintPoints(pts); paintStates(state.cfg, state.games, sts); paintStatLines(computeStatLines(state.cfg, state.statsByGame, state.games)); paintTickers(tk); paintPlayFeed(feed); } }
   };
   async function tick() {
     if (stopped) return;
@@ -2143,7 +2274,7 @@ function startPoller(cfg, games, setStatus) {
     timer = setTimeout(tick, Math.min(r.nextWakeMs, MAX_SLEEP_MS));
   }
   tick();
-  return { stop: function() { stopped = true; if (timer) clearTimeout(timer); } };
+  return { stop: function() { stopped = true; if (timer) clearTimeout(timer); clearPlayFeed(); } };
 }
 function setScreenVw() {
   document.documentElement.style.setProperty('--screen-vw', (document.documentElement.clientWidth / 100) + 'px');
