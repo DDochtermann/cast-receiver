@@ -2541,11 +2541,7 @@ function renderCards(cfg, games) {
     // `team` per player (real roster team, independent of home/away) drives own-score-first
     // ordering + possession-vs-card comparison, kept in lockstep with index.html PC_CONFIG.
     let PC_WEEK = null;
-    let PC_PLAYERS = [
-      { playerId: '12481', playerName: 'Cam Skattebo', position: 'RB', team: 'NYG' },
-      { playerId: '8131', playerName: 'Isaiah Likely', position: 'TE', team: 'NYG' },
-      { playerId: '421', playerName: 'Matthew Stafford', position: 'QB', team: 'LAR' }
-    ];
+    let PC_PLAYERS = []; // no default lineup (2026-10-09): player cards appear only after a CONFIG without mode 'matchup' supplies players
     const PC_POLL_MS = 3000;
     const PC_TICKER_DISPLAY_MS = 10000;
 
@@ -2802,6 +2798,7 @@ function renderCards(cfg, games) {
 
     async function pollPlayerCard() {
       if (document.body.classList.contains('matchup-mode')) return; // S4.1: matchup mode owns the screen
+      if (!PC_PLAYERS.length) return; // no default lineup: nothing to poll until a CONFIG supplies players
       if (window.__diag && window.__diag.pollOff) return; // S4.4e: opt-in A/B switch (default off), see diag script
       const myEpoch = pcConfigEpoch; // see pcConfigEpoch: discard this poll if the config changes mid-flight
       try {
